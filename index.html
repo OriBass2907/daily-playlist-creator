@@ -82,10 +82,39 @@ input[type=text]{width:100%;padding:10px 0;border:0;border-bottom:1px solid var(
 h2{font-size:12px;font-weight:500;margin:0 0 10px}
 .link{background:none;border:0;color:var(--mut);font:12px inherit;text-decoration:underline;cursor:pointer;padding:6px 0;margin-left:14px}
 .link.danger{color:var(--red)}
-.toast{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translate(-50%,80px);background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:99px;font-size:12px;transition:transform .3s;z-index:8}
+.toast{position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));left:50%;transform:translate(-50%,calc(100% + 120px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:99px;font-size:12px;transition:transform .3s;z-index:8}
 .toast.on{transform:translate(-50%,0)}
 .busy{position:fixed;inset:0;background:var(--ink);color:var(--bg);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:9;gap:16px;font-size:13px}
 .busy.on{display:flex}.busy .eq{height:36px;margin:0}.busy .eq i{width:3px}
+
+/* ---- one-screen layout ---- */
+html,body{height:100%}
+body{display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;padding-bottom:0;overflow-y:auto}
+.card.hero.compact{margin:10px 0 0;padding:14px 16px 12px}
+.compact .day{font-size:clamp(28px,8.5vw,40px)}
+.compact .hint{margin:6px 0 10px;font-size:11px}
+.compact .rest{margin-bottom:8px;font-size:12px}
+.heromsg .msg{border:0;padding:0 0 8px;margin:0;color:#cfcfcf;font-size:12px}.heromsg .msg a{color:#fff}.heromsg .err{color:#ff9b9b}
+.gorow{display:grid;grid-template-columns:2fr 1fr;gap:8px;align-items:end}.gorow .rest{grid-column:1/-1}
+.gorow .btn{padding:11px 12px;font-size:13px}.gorow .ghost{font-size:12px;padding:11px 4px}
+.tabs{display:flex;border-bottom:1px solid var(--ink);margin:10px 0 0}
+.tabs button{flex:1;background:none;border:0;padding:10px 0 9px;font:500 12px/1 inherit;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--ink)}
+.panels{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:6px 0 calc(10px + env(safe-area-inset-bottom))}
+.panel{display:none}.panel.on{display:block}
+.panel .sl{padding:6px 0 4px}.panel .sl+.sl,.panel .sw+.sl,.panel .sl+.sw{padding-top:8px}
+.panel .sl output{font-size:22px}.panel .sl label{font-size:12px}
+.panel input[type=range]{margin:8px 0 2px}
+.panel .mix{height:24px;font-size:10px;margin:2px 0 8px}
+.panel .sw{padding:8px 0;font-size:12px;border-top:1px solid var(--line)}
+.panel .days span{height:36px;font-size:14px}
+.lbl{font-size:11px;color:var(--mut);margin:12px 0 6px}
+.panel .sub{margin:8px 0}
+.btn.small{padding:10px;font-size:13px}
+.panel .f{margin-bottom:8px}.panel input[type=text]{padding:7px 0;font-size:14px}
+.panel .stats .stat b{font-size:24px}.panel .msg{margin:0 0 8px;padding:8px 0}
+.toast{bottom:calc(60px + env(safe-area-inset-bottom))}
 </style>
 </head>
 <body>
@@ -242,7 +271,7 @@ function renderResult(r) {
   p.push(`<div class="stats"><div class="stat"><b>${r.tracks.length}</b><span>שירים</span></div><div class="stat"><b>${Math.floor(mins / 60)}:${pad(mins % 60)}</b><span>שעות</span></div><div class="stat"><b>${r.tracks.filter(t => t.he).length}</b><span>בעברית</span></div></div><div class="list">`);
   r.tracks.forEach((t, i) => p.push(`<div class="trk"><div class="num">${i + 1}</div><div class="ti"><b>${esc(t.name)}</b><span>${esc(t.artist)}</span></div><span class="tag">${t.early ? "תחילת ערב" : "אמצע ערב"}</span>${t.he ? '<span class="tag he">עברית</span>' : ""}</div>`));
   p.push("</div>");
-  return "<h2>תוצאה</h2>" + p.join("");
+  return p.join("");
 }
 
 function render(message = "", result = "") {
@@ -257,28 +286,33 @@ function render(message = "", result = "") {
   else if (resting) go = `<div class="rest">😴 היום יום חופש, אין פלייליסט אוטומטי.</div><button class="btn go" data-act="run">צור בכל זאת</button>`;
   else go = `<button class="btn go" data-act="run">צור את הפלייליסט של היום</button>`;
   const texts = TEXTS.map(([k, label, help, kind]) => `<div class="f"><label>${label} <small>${esc(help)}</small></label><input type="text" id="${k}" dir="auto" value="${esc(kind === "list" ? (c[k] || []).join(", ") : c[k])}"></div>`).join("");
-  $("#app").innerHTML = `${message}
-<section class="card hero"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
-<p class="day">${esc(DPC.playlistName(c, today))}</p><p class="hint">${esc(hint)}${c.spotify_user && signed ? " · " + esc(c.spotify_user) : ""}</p>
-${go}<div class="two"><button class="btn ghost" data-act="dry" ${signed ? "" : "disabled"}>תצוגה מקדימה</button><a class="btn ghost" href="#mix">כיוונונים</a></div></section>
-${result}
-<div class="settings">
-<div class="card" id="mix"><h3>תמהיל</h3>${slider("length_minutes", c)}${slider("early_percent", c)}
-<div class="mix"><div class="e"></div><div class="l"></div></div><div class="mixlbl"><span>תחילת ערב</span><span>אמצע ערב ומעלה</span></div>
+  const tab = result ? "result" : (render.tab || "mix");
+  const bpmVals = DPC.bpmOn(c) ? c : {...c, ...(c.bpm_saved || {})};
+  const tabs = [["mix","תמהיל"],["rules","כללים"],["bpm","BPM"],["more","עוד"]].concat(result ? [["result","תוצאה"]] : []);
+  $("#app").innerHTML = `<section class="card hero compact">
+<div class="toprow"><p class="day">${esc(DPC.playlistName(c, today))}</p></div>
+<p class="hint">${esc(hint)}${c.spotify_user && signed ? " · " + esc(c.spotify_user) : ""}</p>
+${message ? `<div class="heromsg">${message}</div>` : ""}
+<div class="gorow">${go}<button class="btn ghost" data-act="dry" ${signed ? "" : "disabled"}>תצוגה מקדימה</button></div></section>
+<nav class="tabs">${tabs.map(([k, l]) => `<button data-tab="${k}" class="${k === tab ? "on" : ""}">${l}</button>`).join("")}</nav>
+<div class="settings panels">
+<div class="panel" data-panel="mix">${slider("length_minutes", c)}${slider("early_percent", c)}
+<div class="mix"><div class="e"></div><div class="l"></div></div>
 ${toggle("hebrew_on", "שליטה באחוז העברית", hp != null)}${slider("hebrew_percent", c)}${slider("blend_songs", c)}</div>
-<div class="card" id="bpm"><h3>קצב (BPM)</h3>${toggle("bpm_on", "שליטה לפי BPM", DPC.bpmOn(c))}
-<div id="bpmbox">${(() => { const b = DPC.bpmOn(c) ? c : {...c, ...(c.bpm_saved || {})}; return slider("bpm_min", b) + slider("bpm_max", b)
-  + toggle("bpm_rise", "הקצב עולה לאורך הערב", DPC.bpmOn(c) ? !!c.bpm_rise : (c.bpm_saved ? !!c.bpm_saved.bpm_rise : true)) + `<div id="risebox">${slider("bpm_start", b)}${slider("bpm_end", b)}</div>`; })()}
-<p class="sub">ה־BPM מגיע ממאגר חיצוני ויש אותו לכ־70% מהשירים. שירים בלי BPM נשארים, ומשובצים לפי החלק של הערב שלהם.</p></div></div>
-<div class="card"><h3>כללים</h3>${slider("max_songs_per_artist", c)}${slider("max_from_yesterday", c)}${toggle("unique_titles", "בלי שני שירים עם אותו שם", c.unique_titles !== false)}</div>
-<div class="card"><h3>ימים עם פלייליסט</h3><div class="days">${DAYS.map(([l, k]) => `<label><input type="checkbox" data-day="${k}" ${c.skip_days.includes(k) ? "" : "checked"}><span>${l}</span></label>`).join("")}</div>
-<p class="sub">ימים כבויים: לא נוצר פלייליסט. "חוזרים מהפלייליסט הקודם" נספר מהפלייליסט האחרון שנוצר.</p></div>
-<div class="card" id="auto"><h3>יצירה אוטומטית</h3><p class="sub" style="margin:0 0 12px">כל יום ב־12:00 נוצר פלייליסט לבד, גם כשהטלפון והמחשב כבויים (חוץ מימי החופש). יצירה ידנית באותו יום דורסת אותו.</p>
-<div id="autostate" class="sub" style="margin:0 0 12px">בודק…</div>
-<button class="btn light-btn" data-act="auto">הפעל יצירה אוטומטית</button></div>
-<details class="card"><summary>מתקדם</summary><div class="adv">${texts}
-<button class="link" data-act="auth">${signed ? "התחבר מחדש לספוטיפיי" : "התחבר לספוטיפיי"}</button>${signed ? '<button class="link" data-act="logout">נתק מספוטיפיי</button>' : ""}<button class="link danger" data-act="delete">מחק חשבון</button></div></details>
+<div class="panel" data-panel="rules">${slider("max_songs_per_artist", c)}${slider("max_from_yesterday", c)}${toggle("unique_titles", "בלי שני שירים עם אותו שם", c.unique_titles !== false)}
+<div class="lbl">ימים עם פלייליסט</div><div class="days">${DAYS.map(([l, k]) => `<label><input type="checkbox" data-day="${k}" ${c.skip_days.includes(k) ? "" : "checked"}><span>${l}</span></label>`).join("")}</div></div>
+<div class="panel" data-panel="bpm">${toggle("bpm_on", "שליטה לפי BPM", DPC.bpmOn(c))}
+<div id="bpmbox">${slider("bpm_min", bpmVals)}${slider("bpm_max", bpmVals)}
+${toggle("bpm_rise", "הקצב עולה לאורך הערב", DPC.bpmOn(c) ? !!c.bpm_rise : (c.bpm_saved ? !!c.bpm_saved.bpm_rise : true))}
+<div id="risebox">${slider("bpm_start", bpmVals)}${slider("bpm_end", bpmVals)}</div></div>
+<p class="sub">BPM ידוע לכ־70% מהשירים. שירים בלי BPM נשארים במקומם בערב.</p></div>
+<div class="panel" data-panel="more"><div class="lbl">יצירה אוטומטית ב־12:00</div>
+<div id="autostate" class="sub">בודק…</div><button class="btn light-btn small" data-act="auto">הפעל יצירה אוטומטית</button>
+<div class="lbl">הגדרות</div>${texts}
+<button class="link" data-act="auth">${signed ? "התחבר מחדש לספוטיפיי" : "התחבר לספוטיפיי"}</button>${signed ? '<button class="link" data-act="logout">נתק</button>' : ""}<button class="link danger" data-act="delete">מחק חשבון</button></div>
+${result ? `<div class="panel" data-panel="result">${result}</div>` : ""}
 </div>`;
+  showTab(tab);
   wireSettings(name);
   showAutoState(name);
 }
@@ -313,6 +347,13 @@ function renderAutoPassword(msg = "") {
 <div class="card light"><h3>שמירה</h3><button class="btn go" data-act="autosave">שמור את החיבור ב־GitHub</button>
 <p class="sub">בעמוד שייפתח לוחצים <b>Commit changes</b> (פעמיים). זה הכל.</p></div>`;
 }
+
+function showTab(t) {
+  render.tab = t === "result" ? render.tab : t;
+  document.querySelectorAll("[data-panel]").forEach(p => p.classList.toggle("on", p.dataset.panel === t));
+  document.querySelectorAll("[data-tab]").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+}
+document.addEventListener("click", e => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); });
 
 function mixBar() {
   const r = $("#early_percent"); if (!r) return; const e = +r.value;
