@@ -98,7 +98,9 @@ h2{font-size:12px;font-weight:500;margin:0 0 10px}
 "use strict";
 const {CLIENT_ID, SCOPES, DAY_KEYS, DEFAULTS, Spotify, playlistId, pad} = DPC;
 const REPO = "OriBass2907/daily-playlist-creator";
-const REDIRECT = location.origin + location.pathname;
+// Must match a Redirect URI in the Spotify app settings exactly.
+const REDIRECT = location.hostname.endsWith("github.io") ? "https://oribass2907.github.io/daily-playlist-creator/"
+  : location.origin + location.pathname.replace(/index\.html$/, "");
 const DAYS = [["א","sunday"],["ב","monday"],["ג","tuesday"],["ד","wednesday"],["ה","thursday"],["ו","friday"],["ש","saturday"]];
 // key: [label, min, max, step, unit, max = unlimited]
 const SLIDERS = {
