@@ -9,7 +9,7 @@ const WEEKDAYS = ["יום ראשון","יום שני","יום שלישי","יו�
 const DEFAULTS = {
   early_playlist: "https://open.spotify.com/playlist/5UorrGgj3rJJRTUhpUonzi",
   late_playlist: "https://open.spotify.com/playlist/0CZKyjDjz2h9uxd8ugTcfL",
-  length_minutes: 300, early_percent: 40, hebrew_percent: 30, blend_songs: 4,
+  length_minutes: 360, early_percent: 40, hebrew_percent: 55, blend_songs: 4,
   max_songs_per_artist: 5, max_from_yesterday: 10, unique_titles: true,
   skip_days: ["friday","sunday"], new_playlist_name: "{weekday} {date}",
   hebrew_artists: ["Omer Adam","Noa Kirel"], not_hebrew_artists: [], public: false
