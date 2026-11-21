@@ -12,7 +12,8 @@ const DEFAULTS = {
   length_minutes: 360, early_percent: 40, hebrew_percent: 55, blend_songs: 4,
   max_songs_per_artist: 5, max_from_yesterday: 10, unique_titles: true,
   skip_days: ["friday","sunday"], new_playlist_name: "{weekday} {date}",
-  hebrew_artists: ["Omer Adam","Noa Kirel"], not_hebrew_artists: [], public: false
+  hebrew_artists: ["Omer Adam","Noa Kirel"], not_hebrew_artists: [], public: false,
+  bpm_min: null, bpm_max: null, bpm_rise: false, bpm_start: 95, bpm_end: 125   // BPM shaping, off by default
 };
 
 // ------------------------------------------------------------ Spotify
@@ -80,7 +81,8 @@ function encodeTag(c) {
   const skip = c.skip_days.map(d => DAY_LETTER[d]).join("") || "-";
   const he = (c.hebrew_artists || []).map(a => a.replace(/[;/⚙]/g, "")).join(";");
   let tag = ["⚙" + n(c.length_minutes), n(c.early_percent), n(c.hebrew_percent), n(c.blend_songs), n(c.max_songs_per_artist),
-    n(c.max_from_yesterday), c.unique_titles === false ? 0 : 1, skip, playlistId(c.early_playlist), playlistId(c.late_playlist), he].join("/");
+    n(c.max_from_yesterday), c.unique_titles === false ? 0 : 1, skip, playlistId(c.early_playlist), playlistId(c.late_playlist),
+    `b${n(c.bpm_min)}-${n(c.bpm_max)}-${c.bpm_rise ? 1 : 0}-${n(c.bpm_start)}-${n(c.bpm_end)}`, he].join("/");
   return tag.slice(0, 200);
 }
 function decodeTag(desc) {
@@ -94,7 +96,13 @@ function decodeTag(desc) {
   return {length_minutes: num(p[0]) ?? DEFAULTS.length_minutes, early_percent: num(p[1]) ?? DEFAULTS.early_percent,
     hebrew_percent: num(p[2]), blend_songs: num(p[3]) ?? 0, max_songs_per_artist: num(p[4]), max_from_yesterday: num(p[5]),
     unique_titles: p[6] !== "0", skip_days: p[7] === "-" ? [] : [...p[7]].map(ch => back[ch]).filter(Boolean),
-    early_playlist: p[8], late_playlist: p[9], hebrew_artists: (p.slice(10).join("/") || "").split(";").map(s => s.trim()).filter(Boolean)};
+    early_playlist: p[8], late_playlist: p[9], ...bpmField(p[10]),
+    hebrew_artists: (p.slice(/^b[\d-]/.test(p[10] || "") ? 11 : 10).join("/") || "").split(";").map(s => s.trim()).filter(Boolean)};
+  function bpmField(f) {
+    const m = /^b([\d-]+?)-([\d-]+?)-([01])-([\d-]+?)-([\d-]+)$/.exec(f || "");
+    if (!m) return {};
+    return {bpm_min: num(m[1]), bpm_max: num(m[2]), bpm_rise: m[3] === "1", bpm_start: num(m[4]) ?? 95, bpm_end: num(m[5]) ?? 125};
+  }
 }
 
 // ------------------------------------------------------------ selection (same rules as the Mac version)
@@ -186,13 +194,71 @@ function noArtistBackToBack(tracks) {
   return tracks;
 }
 
+// ------------------------------------------------------------ BPM (free ReccoBeats database; Spotify closed its own in 2024)
+const bpmOn = c => c.bpm_min != null || c.bpm_max != null || !!c.bpm_rise;
+async function fetchTempos(tracks, step) {
+  const ids = [...new Set(tracks.map(t => t.uri.split(":")[2]))], out = new Map();
+  for (let i = 0; i < ids.length; i += 40) {
+    step && step(`בודק BPM… ${Math.min(i + 40, ids.length)}/${ids.length}`);
+    try {
+      const r = await fetch("https://api.reccobeats.com/v1/audio-features?ids=" + ids.slice(i, i + 40).join(","));
+      if (!r.ok) continue;
+      for (const x of (await r.json()).content || []) {
+        const m = /track\/([A-Za-z0-9]{22})/.exec(x.href || "");
+        if (m && x.tempo) out.set(m[1], {tempo: x.tempo, energy: x.energy});
+      }
+    } catch (e) { /* missing BPM just means "unknown" */ }
+  }
+  for (const t of tracks) { const f = out.get(t.uri.split(":")[2]); if (f) { t.bpm = f.tempo; t.energy = f.energy; } }
+}
+// Half/double-time readings are common (73 vs 146): use whichever reading fits the wanted range/curve.
+function readings(t) { return [t.bpm, t.bpm / 2, t.bpm * 2]; }
+function fitsRange(t, c) {
+  if (t.bpm == null) return true;  // unknown BPM: keep it, it is placed by its part of the evening
+  const lo = c.bpm_min ?? 0, hi = c.bpm_max ?? 999;
+  const ok = readings(t).find(b => b >= lo && b <= hi);
+  if (ok == null) return false;
+  t.bpm = ok; return true;
+}
+// Rising BPM: each part of the evening keeps songs near its own BPM band (unknown BPM is kept),
+// then the part is sorted slow to fast, with the unknown-BPM songs spread evenly through it.
+const BAND_SLACK = 8;
+function inBand(t, lo, hi) {
+  if (t.bpm == null) return true;
+  const r = readings(t).find(b => b >= lo - BAND_SLACK && b <= hi + BAND_SLACK);
+  if (r == null) return false;
+  t.bpm = r; return true;
+}
+function riseOrder(tracks) {
+  const known = tracks.filter(t => t.bpm != null).sort((a, b) => a.bpm - b.bpm), unknown = tracks.filter(t => t.bpm == null);
+  if (!unknown.length) return known;
+  const out = [], every = tracks.length / unknown.length; let next = every / 2;
+  while (known.length || unknown.length) {
+    if (unknown.length && (out.length >= next || !known.length)) { out.push(unknown.shift()); next += every; }
+    else out.push(known.shift());
+  }
+  return out;
+}
+
 function build(earlyPool, latePool, c, yesterday, todayIso) {
+  if (c.bpm_min != null || c.bpm_max != null) { earlyPool = earlyPool.filter(t => fitsRange(t, c)); latePool = latePool.filter(t => fitsRange(t, c)); }
+  if (c.bpm_rise) {
+    const split = c.bpm_start + (c.bpm_end - c.bpm_start) * c.early_percent / 100;
+    earlyPool = earlyPool.filter(t => inBand(t, Math.min(c.bpm_start, split), Math.max(c.bpm_start, split)));
+    latePool = latePool.filter(t => inBand(t, Math.min(split, c.bpm_end), Math.max(split, c.bpm_end)));
+  }
   const rng = rngFrom(todayIso + c._name);
   const totalMs = c.length_minutes * 60000, earlyMs = totalMs * c.early_percent / 100;
   const taken = new Taken(c, yesterday), hp = c.hebrew_percent;
   let [early, gotEarly] = pickSection(earlyPool, earlyMs, hp, rng, taken);
   let [late, gotLate] = pickSection(latePool, totalMs - gotEarly, hp, rng, taken);
   early = noArtistBackToBack(early); late = noArtistBackToBack(late);
+  if (c.bpm_rise) {   // after the artist reshuffle, so the rise wins; then fix back-to-back artists only where it is free
+    const down = c.bpm_end < c.bpm_start;
+    early = riseOrder(early); late = riseOrder(late);
+    if (down) { early.reverse(); late.reverse(); }
+    early = noArtistBackToBack(early); late = noArtistBackToBack(late);
+  }
   const n = Math.min(c.blend_songs || 0, early.length, late.length), blend = [];
   if (n) {
     const tail = early.slice(-n), head = late.slice(0, n);
@@ -238,8 +304,13 @@ async function run(c, token, opts = {}) {
   const earlyPool = markHebrew(await sp.playlistTracks(playlistId(c.early_playlist)), c);
   const latePool = markHebrew(await sp.playlistTracks(playlistId(c.late_playlist)), c);
   if (!earlyPool.length && !latePool.length) throw new Error("שני פלייליסטי המקור ריקים. הם צריכים להיות פלייליסטים שלך או שאתה שותף בהם.");
+  if (bpmOn(c)) await fetchTempos([...earlyPool, ...latePool], step);
   step("בונה פלייליסט…");
   const [tracks, warnings] = build(earlyPool, latePool, c, yesterday, d.iso);
+  if (bpmOn(c) && tracks.length) {
+    const known = tracks.filter(t => t.bpm != null).length;
+    if (known < tracks.length * 0.5) warnings.push(`BPM ידוע רק ל־${known} מתוך ${tracks.length} שירים, אז הסידור לפי BPM חלקי.`);
+  }
   const earlyUris = new Set(earlyPool.map(t => t.uri));
   tracks.forEach(t => t.early = earlyUris.has(t.uri));
   let link = null;
@@ -271,6 +342,6 @@ async function pullSettings(token) {
   return null;
 }
 
-root.DPC = {CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
+root.DPC = {bpmOn, fetchTempos, riseOrder, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
   markHebrew, normTitle, build, israelNow, playlistName, isSkipDay, run, pushSettings, pullSettings, pad};
 })(typeof window !== "undefined" ? window : globalThis);

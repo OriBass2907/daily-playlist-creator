@@ -48,7 +48,7 @@ main{max-width:540px;margin:0 auto;padding:0 16px calc(60px + env(safe-area-inse
 input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:2px;outline:0;margin:12px 0 2px;direction:rtl;background:linear-gradient(to left,var(--ink) var(--p),#0f0f0f26 var(--p))}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--ink);cursor:grab;border:6px solid var(--bg);box-shadow:0 0 0 1px var(--ink)}
 input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--ink);border:5px solid var(--bg);box-shadow:0 0 0 1px var(--ink)}
-.sl.off{opacity:.3}
+.sl.off{opacity:.3}.hide{display:none}
 .mix{display:flex;height:32px;margin:0 0 6px;font-size:11px;font-weight:500;letter-spacing:.1em;border:1px solid var(--ink)}
 .mix div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden}
 .mix .e{background:var(--ink);color:var(--bg)}
@@ -102,15 +102,20 @@ const REPO = "OriBass2907/daily-playlist-creator";
 const REDIRECT = location.hostname.endsWith("github.io") ? "https://oribass2907.github.io/daily-playlist-creator/"
   : location.origin + location.pathname.replace(/index\.html$/, "");
 const DAYS = [["א","sunday"],["ב","monday"],["ג","tuesday"],["ד","wednesday"],["ה","thursday"],["ו","friday"],["ש","saturday"]];
-// key: [label, min, max, step, unit, max = unlimited]
+// key: [label, min, max, step, unit, max = unlimited, min = none]
 const SLIDERS = {
   length_minutes: ["אורך הפלייליסט",60,600,15,"time",false],
   early_percent: ["תחילת ערב",0,100,5,"%",false],
   hebrew_percent: ["שירים בעברית",0,100,5,"%",false],
   blend_songs: ["שירים במעבר",0,10,1,"שירים",false],
   max_songs_per_artist: ["מקסימום שירים לאמן",1,11,1,"שירים",true],
-  max_from_yesterday: ["מקסימום חוזרים מהפלייליסט הקודם",0,31,1,"שירים",true]
+  max_from_yesterday: ["מקסימום חוזרים מהפלייליסט הקודם",0,31,1,"שירים",true],
+  bpm_min: ["BPM מינימלי",60,180,5,"BPM",false,true],
+  bpm_max: ["BPM מקסימלי",60,180,5,"BPM",true],
+  bpm_start: ["BPM בתחילת הערב",60,180,5,"BPM",false],
+  bpm_end: ["BPM בסוף הערב",60,180,5,"BPM",false]
 };
+const BPM_KEYS = ["bpm_min", "bpm_max", "bpm_start", "bpm_end"];
 const TEXTS = [["early_playlist","פלייליסט תחילת ערב","קישור מספוטיפיי","text"],
   ["late_playlist","פלייליסט אמצע ערב ומעלה","קישור מספוטיפיי","text"],
   ["new_playlist_name","שם הפלייליסט","{weekday} = יום, {date} = תאריך","text"],
@@ -204,15 +209,16 @@ async function autoConnected(name) {
 
 // ============================================================ UI
 function fmt(key, v) {
-  const [, , hi, , unit, inf] = SLIDERS[key];
+  const [, lo, hi, , unit, inf, none] = SLIDERS[key];
   if (inf && v === hi) return "∞";
+  if (none && v === lo) return "ללא";
   if (unit === "time") return Math.floor(v / 60) + ":" + pad(v % 60) + "<small> שעות</small>";
   if (unit === "%") return v + "<small>%</small>";
   return v + "<small> " + unit + "</small>";
 }
 function slider(key, c) {
-  const [label, lo, hi, step, unit, inf] = SLIDERS[key];
-  let v = c[key]; v = v == null ? (inf ? hi : (key === "hebrew_percent" ? 30 : lo)) : Math.max(lo, Math.min(hi, +v));
+  const [label, lo, hi, step, unit, inf, none] = SLIDERS[key];
+  let v = c[key]; v = v == null ? (inf ? hi : none ? lo : (DEFAULTS[key] ?? lo)) : Math.max(lo, Math.min(hi, +v));
   return `<div class="sl" id="sl_${key}"><div class="top"><label for="${key}">${label}</label><output id="o_${key}">${fmt(key, v)}</output></div>
 <input type="range" id="${key}" min="${lo}" max="${hi}" step="${step}" value="${v}" style="--p:${100 * (v - lo) / (hi - lo)}%"></div>`;
 }
@@ -260,6 +266,10 @@ ${result}
 <div class="card" id="mix"><h3>תמהיל</h3>${slider("length_minutes", c)}${slider("early_percent", c)}
 <div class="mix"><div class="e"></div><div class="l"></div></div><div class="mixlbl"><span>תחילת ערב</span><span>אמצע ערב ומעלה</span></div>
 ${toggle("hebrew_on", "שליטה באחוז העברית", hp != null)}${slider("hebrew_percent", c)}${slider("blend_songs", c)}</div>
+<div class="card" id="bpm"><h3>קצב (BPM)</h3>${toggle("bpm_on", "שליטה לפי BPM", DPC.bpmOn(c))}
+<div id="bpmbox">${(() => { const b = DPC.bpmOn(c) ? c : {...c, ...(c.bpm_saved || {})}; return slider("bpm_min", b) + slider("bpm_max", b)
+  + toggle("bpm_rise", "הקצב עולה לאורך הערב", DPC.bpmOn(c) ? !!c.bpm_rise : (c.bpm_saved ? !!c.bpm_saved.bpm_rise : true)) + `<div id="risebox">${slider("bpm_start", b)}${slider("bpm_end", b)}</div>`; })()}
+<p class="sub">ה־BPM מגיע ממאגר חיצוני ויש אותו לכ־70% מהשירים. שירים בלי BPM נשארים, ומשובצים לפי החלק של הערב שלהם.</p></div></div>
 <div class="card"><h3>כללים</h3>${slider("max_songs_per_artist", c)}${slider("max_from_yesterday", c)}${toggle("unique_titles", "בלי שני שירים עם אותו שם", c.unique_titles !== false)}</div>
 <div class="card"><h3>ימים עם פלייליסט</h3><div class="days">${DAYS.map(([l, k]) => `<label><input type="checkbox" data-day="${k}" ${c.skip_days.includes(k) ? "" : "checked"}><span>${l}</span></label>`).join("")}</div>
 <p class="sub">ימים כבויים: לא נוצר פלייליסט. "חוזרים מהפלייליסט הקודם" נספר מהפלייליסט האחרון שנוצר.</p></div>
@@ -309,13 +319,19 @@ function mixBar() {
   $(".mix .e").style.width = e + "%"; $(".mix .l").style.width = (100 - e) + "%";
   $(".mix .e").textContent = e > 12 ? e + "%" : ""; $(".mix .l").textContent = 100 - e > 12 ? (100 - e) + "%" : "";
   $("#sl_hebrew_percent").classList.toggle("off", !$("#hebrew_on").checked);
+  const on = $("#bpm_on"); if (on) { $("#bpmbox").classList.toggle("hide", !on.checked); $("#risebox").classList.toggle("hide", !$("#bpm_rise").checked); }
 }
 
 function wireSettings(name) {
   const save = () => {
     const patch = {};
-    for (const [key, [, lo, hi, , , inf]] of Object.entries(SLIDERS)) { const v = +$("#" + key).value; patch[key] = inf && v === hi ? null : v; }
+    for (const [key, [, lo, hi, , , inf, none]] of Object.entries(SLIDERS)) { const v = +$("#" + key).value; patch[key] = (inf && v === hi) || (none && v === lo) ? null : v; }
     if (!$("#hebrew_on").checked) patch.hebrew_percent = null;
+    patch.bpm_rise = $("#bpm_rise").checked;
+    if (!$("#bpm_on").checked) {   // off: remember the values for next time, but don't apply them
+      patch.bpm_saved = Object.fromEntries([...BPM_KEYS, "bpm_rise"].map(k => [k, patch[k]]));
+      Object.assign(patch, {bpm_min: null, bpm_max: null, bpm_rise: false});
+    }
     patch.unique_titles = $("#unique_titles").checked;
     patch.skip_days = [...document.querySelectorAll("[data-day]")].filter(i => !i.checked).map(i => i.dataset.day);
     for (const [k, , , kind] of TEXTS) { const v = $("#" + k).value.trim(); patch[k] = kind === "list" ? v.split(",").map(a => a.trim()).filter(Boolean) : v; }
