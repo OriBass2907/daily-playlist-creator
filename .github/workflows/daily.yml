@@ -1,0 +1,31 @@
+name: Daily playlist 12:00
+on:
+  schedule:
+    # 12:00 Israel time is 09:00 UTC in summer and 10:00 UTC in winter. auto.mjs only acts between 12:00 and 16:00
+    # Israel time and never makes a second playlist on the same day, so the extra runs are harmless back-ups.
+    - cron: "0 9,10,11 * * *"
+  workflow_dispatch:   # "Run workflow" button: make today's playlist now (if it doesn't exist yet)
+permissions:
+  contents: write
+concurrency: daily-playlist
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Make today's playlist
+        run: node auto.mjs
+        env:
+          DPC_KEY: ${{ secrets.DPC_KEY }}
+          FORCE: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Save status and refreshed connection
+        if: always()
+        run: |
+          git config user.name "daily-playlist-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A tokens status 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "Daily run $(TZ=Asia/Jerusalem date +%F)" && git push)
