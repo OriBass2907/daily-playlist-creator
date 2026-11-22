@@ -13,7 +13,8 @@ const DEFAULTS = {
   max_songs_per_artist: 5, max_from_yesterday: 10, unique_titles: true,
   skip_days: ["friday","sunday"], new_playlist_name: "{weekday} {date}",
   hebrew_artists: ["Omer Adam","Noa Kirel"], not_hebrew_artists: [], public: false,
-  bpm_min: null, bpm_max: null, bpm_rise: false, bpm_start: 95, bpm_end: 125   // BPM shaping, off by default
+  bpm_min: null, bpm_max: null, bpm_rise: false, bpm_start: 95, bpm_end: 125,   // BPM shaping, off by default
+  learn: false, learn_from: []   // order songs by the energy curve learned from example playlists (empty = the two source playlists)
 };
 
 // ------------------------------------------------------------ Spotify
@@ -82,7 +83,8 @@ function encodeTag(c) {
   const he = (c.hebrew_artists || []).map(a => a.replace(/[;/⚙]/g, "")).join(";");
   let tag = ["⚙" + n(c.length_minutes), n(c.early_percent), n(c.hebrew_percent), n(c.blend_songs), n(c.max_songs_per_artist),
     n(c.max_from_yesterday), c.unique_titles === false ? 0 : 1, skip, playlistId(c.early_playlist), playlistId(c.late_playlist),
-    `b${n(c.bpm_min)}-${n(c.bpm_max)}-${c.bpm_rise ? 1 : 0}-${n(c.bpm_start)}-${n(c.bpm_end)}`, he].join("/");
+    `b${n(c.bpm_min)}-${n(c.bpm_max)}-${c.bpm_rise ? 1 : 0}-${n(c.bpm_start)}-${n(c.bpm_end)}`,
+    "L" + (c.learn ? 1 : 0) + ((c.learn_from || []).length ? ":" + c.learn_from.slice(0, 3).map(playlistId).join(".") : ""), he].join("/");
   return tag.slice(0, 200);
 }
 function decodeTag(desc) {
@@ -93,11 +95,18 @@ function decodeTag(desc) {
   if (p.length < 10) return null;
   const num = v => v === "-" || v === "" ? null : +v;
   const back = Object.fromEntries(Object.entries(DAY_LETTER).map(([k, v]) => [v, k]));
+  const hasB = /^b[\d-]/.test(p[10] || ""), hasL = /^L[01](:[A-Za-z0-9.]*)?$/.test(p[hasB ? 11 : 10] || "");
+  const heAt = 10 + (hasB ? 1 : 0) + (hasL ? 1 : 0);
   return {length_minutes: num(p[0]) ?? DEFAULTS.length_minutes, early_percent: num(p[1]) ?? DEFAULTS.early_percent,
     hebrew_percent: num(p[2]), blend_songs: num(p[3]) ?? 0, max_songs_per_artist: num(p[4]), max_from_yesterday: num(p[5]),
     unique_titles: p[6] !== "0", skip_days: p[7] === "-" ? [] : [...p[7]].map(ch => back[ch]).filter(Boolean),
-    early_playlist: p[8], late_playlist: p[9], ...bpmField(p[10]),
-    hebrew_artists: (p.slice(/^b[\d-]/.test(p[10] || "") ? 11 : 10).join("/") || "").split(";").map(s => s.trim()).filter(Boolean)};
+    early_playlist: p[8], late_playlist: p[9], ...bpmField(p[10]), ...learnField(p[hasB ? 11 : 10]),
+    hebrew_artists: (p.slice(heAt).join("/") || "").split(";").map(s => s.trim()).filter(Boolean)};
+  function learnField(f) {
+    const m = /^L([01])(?::([A-Za-z0-9.]*))?$/.exec(f || "");
+    if (!m) return {};
+    return {learn: m[1] === "1", learn_from: (m[2] || "").split(".").filter(Boolean)};
+  }
   function bpmField(f) {
     const m = /^b([\d-]+?)-([\d-]+?)-([01])-([\d-]+?)-([\d-]+)$/.exec(f || "");
     if (!m) return {};
@@ -205,11 +214,65 @@ async function fetchTempos(tracks, step) {
       if (!r.ok) continue;
       for (const x of (await r.json()).content || []) {
         const m = /track\/([A-Za-z0-9]{22})/.exec(x.href || "");
-        if (m && x.tempo) out.set(m[1], {tempo: x.tempo, energy: x.energy});
+        if (m && x.tempo) out.set(m[1], x);
       }
     } catch (e) { /* missing BPM just means "unknown" */ }
   }
-  for (const t of tracks) { const f = out.get(t.uri.split(":")[2]); if (f) { t.bpm = f.tempo; t.energy = f.energy; } }
+  for (const t of tracks) {
+    const f = out.get(t.uri.split(":")[2]); if (!f) continue;
+    t.bpm = f.tempo; t.energy = f.energy;
+    t.lift = liftOf(f);
+  }
+}
+// "How lifted" a song feels: energetic, danceable, not acoustic. 0 = calm and soft, 1 = peak of the night.
+function liftOf(f) {
+  if (f.energy == null) return null;
+  const v = x => x == null ? 0.5 : x;
+  return 0.5 * f.energy + 0.3 * v(f.danceability) + 0.2 * (1 - v(f.acousticness));
+}
+
+// ------------------------------------------------------------ learning the evening from example playlists
+// Each example playlist (in its own order) shows how the energy moves through an evening. For every song we take how
+// lifted it is compared with the rest of that playlist (0 = calmest, 1 = most lifted) and where it sits (0 = start, 1 = end),
+// average that over all examples in 10 steps, and smooth it. The new playlist is then ordered to follow that curve.
+const STEPS = 10;
+function learnCurve(evenings) {
+  const sum = Array(STEPS).fill(0), cnt = Array(STEPS).fill(0);
+  let used = 0;
+  for (const ev of evenings) {
+    const known = ev.map((t, i) => ({i, l: t.lift})).filter(x => x.l != null);
+    if (known.length < 8) continue;
+    used++;
+    const ranks = known.slice().sort((a, b) => a.l - b.l);
+    ranks.forEach((x, r) => x.r = r / (ranks.length - 1));
+    for (const x of known) { const b = Math.min(STEPS - 1, Math.floor(STEPS * x.i / ev.length)); sum[b] += x.r; cnt[b]++; }
+  }
+  if (!used) return null;
+  const raw = sum.map((s, b) => cnt[b] ? s / cnt[b] : null);
+  for (let b = 0; b < STEPS; b++) if (raw[b] == null) raw[b] = raw[b - 1] ?? raw.find(v => v != null);
+  const curve = raw.map((v, b) => { const w = [raw[b - 1], v, raw[b + 1]].filter(x => x != null); return w.reduce((a, x) => a + x, 0) / w.length; });
+  return {curve, playlists: used};
+}
+const curveAt = (curve, f) => { const x = Math.max(0, Math.min(STEPS - 1, f * STEPS - 0.5)), i = Math.floor(x), k = x - i; return curve[i] * (1 - k) + (curve[Math.min(STEPS - 1, i + 1)]) * k; };
+// Order one part of the evening (covering fractions from..to of the night) so its songs follow the curve:
+// the calmest songs go where the curve is lowest. Unknown songs are spread evenly.
+function curveOrder(tracks, curve, from, to) {
+  const known = tracks.filter(t => t.lift != null).sort((a, b) => a.lift - b.lift), unknown = tracks.filter(t => t.lift == null);
+  const n = tracks.length, slots = [];
+  if (!n) return tracks;
+  const every = unknown.length ? n / unknown.length : Infinity; let next = every / 2;
+  for (let i = 0; i < n; i++) { if (unknown.length && i >= next && slots.filter(s => s.u).length < unknown.length) { slots.push({i, u: true}); next += every; } else slots.push({i}); }
+  const free = slots.filter(s => !s.u);
+  while (free.length > known.length) { const s = free.pop(); s.u = true; }   // only if rounding left too few unknown slots
+  const out = Array(n);
+  free.map(s => ({s, v: curveAt(curve, from + (to - from) * (s.i + 0.5) / n)})).sort((a, b) => a.v - b.v).forEach((x, k) => out[x.s.i] = known[k]);
+  slots.filter(s => s.u).forEach((s, k) => out[s.i] = unknown[k]);
+  return out.filter(Boolean);
+}
+function describeCurve(curve) {
+  const word = v => v < 0.35 ? "רגוע" : v < 0.55 ? "נעים" : v < 0.7 ? "עולה" : "בשיא";
+  const peak = curve.indexOf(Math.max(...curve));
+  return `מתחיל ${word(curve[0])}, באמצע ${word(curve[4])}, בסוף ${word(curve[STEPS - 1])} (השיא בערך ב־${Math.round(100 * (peak + 0.5) / STEPS)}% מהערב)`;
 }
 // Half/double-time readings are common (73 vs 146): use whichever reading fits the wanted range/curve.
 function readings(t) { return [t.bpm, t.bpm / 2, t.bpm * 2]; }
@@ -240,7 +303,7 @@ function riseOrder(tracks) {
   return out;
 }
 
-function build(earlyPool, latePool, c, yesterday, todayIso) {
+function build(earlyPool, latePool, c, yesterday, todayIso, curve) {
   if (c.bpm_min != null || c.bpm_max != null) { earlyPool = earlyPool.filter(t => fitsRange(t, c)); latePool = latePool.filter(t => fitsRange(t, c)); }
   if (c.bpm_rise) {
     const split = c.bpm_start + (c.bpm_end - c.bpm_start) * c.early_percent / 100;
@@ -253,7 +316,10 @@ function build(earlyPool, latePool, c, yesterday, todayIso) {
   let [early, gotEarly] = pickSection(earlyPool, earlyMs, hp, rng, taken);
   let [late, gotLate] = pickSection(latePool, totalMs - gotEarly, hp, rng, taken);
   early = noArtistBackToBack(early); late = noArtistBackToBack(late);
-  if (c.bpm_rise) {   // after the artist reshuffle, so the rise wins; then fix back-to-back artists only where it is free
+  if (curve) {   // learned evening wins over the BPM rise; then fix back-to-back artists only where it is free
+    const e = c.early_percent / 100;
+    early = noArtistBackToBack(curveOrder(early, curve, 0, e)); late = noArtistBackToBack(curveOrder(late, curve, e, 1));
+  } else if (c.bpm_rise) {   // after the artist reshuffle, so the rise wins; then fix back-to-back artists only where it is free
     const down = c.bpm_end < c.bpm_start;
     early = riseOrder(early); late = riseOrder(late);
     if (down) { early.reverse(); late.reverse(); }
@@ -304,9 +370,20 @@ async function run(c, token, opts = {}) {
   const earlyPool = markHebrew(await sp.playlistTracks(playlistId(c.early_playlist)), c);
   const latePool = markHebrew(await sp.playlistTracks(playlistId(c.late_playlist)), c);
   if (!earlyPool.length && !latePool.length) throw new Error("שני פלייליסטי המקור ריקים. הם צריכים להיות פלייליסטים שלך או שאתה שותף בהם.");
-  if (bpmOn(c)) await fetchTempos([...earlyPool, ...latePool], step);
+  let learned = null;
+  const refs = [];
+  if (c.learn && (c.learn_from || []).length) {
+    step("קורא את הפלייליסטים ללמידה…");
+    for (const u of c.learn_from) { try { refs.push(await sp.playlistTracks(playlistId(u))); } catch (e) { /* skip a playlist we can't read */ } }
+  }
+  if (bpmOn(c) || c.learn) await fetchTempos([...earlyPool, ...latePool, ...refs.flat()], step);
+  if (c.learn) {
+    // no examples given: the two source playlists, back to back, are one evening
+    learned = learnCurve(refs.length ? refs : [[...earlyPool, ...latePool]]);
+  }
   step("בונה פלייליסט…");
-  const [tracks, warnings] = build(earlyPool, latePool, c, yesterday, d.iso);
+  const [tracks, warnings] = build(earlyPool, latePool, c, yesterday, d.iso, learned && learned.curve);
+  if (c.learn && !learned) warnings.push("לא היה מספיק מידע על השירים בפלייליסטים ללמידה, אז הסדר לא נלמד הפעם.");
   if (bpmOn(c) && tracks.length) {
     const known = tracks.filter(t => t.bpm != null).length;
     if (known < tracks.length * 0.5) warnings.push(`BPM ידוע רק ל־${known} מתוך ${tracks.length} שירים, אז הסידור לפי BPM חלקי.`);
@@ -323,7 +400,7 @@ async function run(c, token, opts = {}) {
     await sp.setItems(pid, tracks.map(t => t.uri));
     link = "https://open.spotify.com/playlist/" + pid;
   }
-  return {tracks, warnings, link, dry: !!opts.dry, existed: false};
+  return {tracks, warnings, link, dry: !!opts.dry, existed: false, learned: learned && {...learned, text: describeCurve(learned.curve)}};
 }
 
 // Save settings for the 12:00 run: rewrite the tag on the newest dated playlist.
@@ -342,6 +419,6 @@ async function pullSettings(token) {
   return null;
 }
 
-root.DPC = {bpmOn, fetchTempos, riseOrder, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
+root.DPC = {bpmOn, fetchTempos, riseOrder, learnCurve, curveOrder, describeCurve, liftOf, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
   markHebrew, normTitle, build, israelNow, playlistName, isSkipDay, run, pushSettings, pullSettings, pad};
 })(typeof window !== "undefined" ? window : globalThis);
