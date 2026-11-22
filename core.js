@@ -14,6 +14,7 @@ const DEFAULTS = {
   skip_days: ["friday","sunday"], new_playlist_name: "{weekday} {date}",
   hebrew_artists: ["Omer Adam","Noa Kirel"], not_hebrew_artists: [], public: false,
   bpm_min: null, bpm_max: null, bpm_rise: false, bpm_start: 95, bpm_end: 125,   // BPM shaping, off by default
+  hebrew_blocks: false,   // Hebrew songs in small groups (2-3 in a row) instead of evenly spread
   learn: true, learn_from: ["https://open.spotify.com/playlist/5EcQHirLwlqgFxWRSQLnxD", "https://open.spotify.com/playlist/0awpur3xdWrUBWCpkCCOAY", "https://open.spotify.com/playlist/3OslX3nsRpnDl7UWvPdptC"]   // order songs (inside each part) by the energy curve learned from Ori's example playlists (empty = the two source playlists)
 };
 
@@ -84,7 +85,8 @@ function encodeTag(c) {
   let tag = ["⚙" + n(c.length_minutes), n(c.early_percent), n(c.hebrew_percent), n(c.blend_songs), n(c.max_songs_per_artist),
     n(c.max_from_yesterday), c.unique_titles === false ? 0 : 1, skip, playlistId(c.early_playlist), playlistId(c.late_playlist),
     `b${n(c.bpm_min)}-${n(c.bpm_max)}-${c.bpm_rise ? 1 : 0}-${n(c.bpm_start)}-${n(c.bpm_end)}`,
-    "L" + (c.learn ? 1 : 0) + ((c.learn_from || []).length ? ":" + c.learn_from.slice(0, 3).map(playlistId).join(".") : ""), he].join("/");
+    "L" + (c.learn ? 1 : 0) + ((c.learn_from || []).length ? ":" + c.learn_from.slice(0, 3).map(playlistId).join(".") : ""),
+    "H" + (c.hebrew_blocks ? 1 : 0), he].join("/");
   return tag.slice(0, 200);
 }
 function decodeTag(desc) {
@@ -96,11 +98,12 @@ function decodeTag(desc) {
   const num = v => v === "-" || v === "" ? null : +v;
   const back = Object.fromEntries(Object.entries(DAY_LETTER).map(([k, v]) => [v, k]));
   const hasB = /^b[\d-]/.test(p[10] || ""), hasL = /^L[01](:[A-Za-z0-9.]*)?$/.test(p[hasB ? 11 : 10] || "");
-  const heAt = 10 + (hasB ? 1 : 0) + (hasL ? 1 : 0);
+  const hAt = 10 + (hasB ? 1 : 0) + (hasL ? 1 : 0), hasH = /^H[01]$/.test(p[hAt] || "");
+  const heAt = hAt + (hasH ? 1 : 0);
   return {length_minutes: num(p[0]) ?? DEFAULTS.length_minutes, early_percent: num(p[1]) ?? DEFAULTS.early_percent,
     hebrew_percent: num(p[2]), blend_songs: num(p[3]) ?? 0, max_songs_per_artist: num(p[4]), max_from_yesterday: num(p[5]),
     unique_titles: p[6] !== "0", skip_days: p[7] === "-" ? [] : [...p[7]].map(ch => back[ch]).filter(Boolean),
-    early_playlist: p[8], late_playlist: p[9], ...bpmField(p[10]), ...learnField(p[hasB ? 11 : 10]),
+    early_playlist: p[8], late_playlist: p[9], ...bpmField(p[10]), ...learnField(p[hasB ? 11 : 10]), ...(hasH ? {hebrew_blocks: p[hAt] === "H1"} : {}),
     hebrew_artists: (p.slice(heAt).join("/") || "").split(";").map(s => s.trim()).filter(Boolean)};
   function learnField(f) {
     const m = /^L([01])(?::([A-Za-z0-9.]*))?$/.exec(f || "");
@@ -303,6 +306,26 @@ function riseOrder(tracks) {
   return out;
 }
 
+// Hebrew in groups: Hebrew songs come in runs of 2-3 (never more than 3), with the other songs between the runs.
+// Each language keeps its own order, so the evening's energy order stays almost the same.
+function hebrewBlocks(tracks, max = 3) {
+  const he = tracks.filter(t => t.he), other = tracks.filter(t => !t.he);
+  if (he.length < 2) return tracks;
+  const k = Math.ceil(he.length / max);
+  if (other.length < k - 1) return tracks;          // not enough other songs to separate the groups
+  const sizes = Array.from({length: k}, (_, i) => Math.floor(he.length / k) + (i < he.length % k ? 1 : 0));
+  // k+1 gaps of other songs (before, between, after); the inner gaps get at least one song
+  const gaps = Array(k + 1).fill(0); let left = other.length;
+  for (let i = 1; i < k; i++) { gaps[i] = 1; left--; }
+  for (let i = 0; left > 0; i = (i + 1) % (k + 1)) { gaps[i]++; left--; }
+  const out = []; let h = 0, o = 0;
+  for (let i = 0; i <= k; i++) {
+    for (let g = 0; g < gaps[i]; g++) out.push(other[o++]);
+    if (i < k) for (let z = 0; z < sizes[i]; z++) out.push(he[h++]);
+  }
+  return out;
+}
+
 function build(earlyPool, latePool, c, yesterday, todayIso, curve) {
   if (c.bpm_min != null || c.bpm_max != null) { earlyPool = earlyPool.filter(t => fitsRange(t, c)); latePool = latePool.filter(t => fitsRange(t, c)); }
   if (c.bpm_rise) {
@@ -325,6 +348,7 @@ function build(earlyPool, latePool, c, yesterday, todayIso, curve) {
     if (down) { early.reverse(); late.reverse(); }
     early = noArtistBackToBack(early); late = noArtistBackToBack(late);
   }
+  if (c.hebrew_blocks && c.hebrew_percent != null) { early = noArtistBackToBack(hebrewBlocks(early)); late = noArtistBackToBack(hebrewBlocks(late)); }
   const n = Math.min(c.blend_songs || 0, early.length, late.length), blend = [];
   if (n) {
     const tail = early.slice(-n), head = late.slice(0, n);
@@ -420,6 +444,6 @@ async function pullSettings(token) {
   return null;
 }
 
-root.DPC = {bpmOn, fetchTempos, riseOrder, learnCurve, curveOrder, describeCurve, liftOf, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
+root.DPC = {hebrewBlocks, bpmOn, fetchTempos, riseOrder, learnCurve, curveOrder, describeCurve, liftOf, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
   markHebrew, normTitle, build, israelNow, playlistName, isSkipDay, run, pushSettings, pullSettings, pad};
 })(typeof window !== "undefined" ? window : globalThis);

@@ -1,27 +1,30 @@
 // The daily 12:00 run (GitHub Actions). For every account connected in the app (tokens/<account>.json, encrypted
-// with the DPC_KEY password), build today's playlist unless one already exists. Settings come from the app
+// with that account's DPC_KEY_<ACCOUNT> secret), build today's playlist unless one already exists. Settings come from the app
 // (carried in the description of the newest dated playlist). Writes status/<account>.json for the app to show.
 import "./core.js";
 import {webcrypto as crypto} from "node:crypto";
 import fs from "node:fs";
 
 const DPC = globalThis.DPC;
-const KEY = process.env.DPC_KEY || "";
+// One secret per account: DPC_KEY_<ACCOUNT> (made by the app), falling back to the older shared DPC_KEY.
+let SECRETS = {};
+try { SECRETS = JSON.parse(process.env.DPC_SECRETS || "{}"); } catch { SECRETS = {}; }
+const keyFor = slug => SECRETS["DPC_KEY_" + slug.toUpperCase().replace(/[^A-Z0-9_]/g, "_")] || SECRETS.DPC_KEY || process.env.DPC_KEY || "";
 const FORCE = process.env.FORCE === "true";   // manual "Run workflow" button: ignore the time window
 const enc = new TextEncoder(), dec = new TextDecoder();
 const b64 = buf => Buffer.from(buf).toString("base64"), unb64 = s => new Uint8Array(Buffer.from(s, "base64"));
 
-async function aesKey(salt) {
+async function aesKey(salt, KEY) {
   const base = await crypto.subtle.importKey("raw", enc.encode(KEY), "PBKDF2", false, ["deriveKey"]);
   return crypto.subtle.deriveKey({name: "PBKDF2", salt, iterations: 200000, hash: "SHA-256"}, base, {name: "AES-GCM", length: 256}, false, ["encrypt", "decrypt"]);
 }
-async function decrypt(box) {
-  const pt = await crypto.subtle.decrypt({name: "AES-GCM", iv: unb64(box.iv)}, await aesKey(unb64(box.salt)), unb64(box.ct));
+async function decrypt(box, key) {
+  const pt = await crypto.subtle.decrypt({name: "AES-GCM", iv: unb64(box.iv)}, await aesKey(unb64(box.salt), key), unb64(box.ct));
   return JSON.parse(dec.decode(pt));
 }
-async function encrypt(obj) {
+async function encrypt(obj, key) {
   const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({name: "AES-GCM", iv}, await aesKey(salt), enc.encode(JSON.stringify(obj)));
+  const ct = await crypto.subtle.encrypt({name: "AES-GCM", iv}, await aesKey(salt, key), enc.encode(JSON.stringify(obj)));
   return {v: 1, salt: b64(salt), iv: b64(iv), ct: b64(ct)};
 }
 
@@ -30,7 +33,6 @@ if (!FORCE && (now.hour < 12 || now.hour >= 16)) {
   console.log(`Israel time ${now.hour}:${DPC.pad(now.minute)}: outside 12:00-16:00, nothing to do.`);
   process.exit(0);
 }
-if (!KEY) { console.error("The DPC_KEY secret is missing (repo Settings > Secrets and variables > Actions)."); process.exit(1); }
 
 fs.mkdirSync("status", {recursive: true});
 // tokens/<account>--<time>.json: the app adds a new file on every (re)connect; keep only the newest per account.
@@ -45,8 +47,13 @@ for (const f of files) {
   const slug = f.split("--")[0].replace(/\.json$/, ""), status = {date: now.iso, time: `${now.hour}:${DPC.pad(now.minute)}`};
   try {
     const box = JSON.parse(fs.readFileSync("tokens/" + f, "utf8"));
+    const key = keyFor(slug), name = "DPC_KEY_" + slug.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+    if (!key) throw new Error(`The GitHub secret ${name} is missing (repo Settings > Secrets and variables > Actions).`);
     let tok;
-    try { tok = await decrypt(box); } catch { throw new Error("Wrong DPC_KEY password: it must match the one typed in the app."); }
+    try { tok = await decrypt(box, key); } catch {
+      throw new Error(SECRETS[name] ? `The key in the GitHub secret ${name} does not match: in the app press 'הפעל יצירה אוטומטית' again.`
+        : `The GitHub secret ${name} is missing (repo Settings > Secrets and variables > Actions > New repository secret).`);
+    }
     status.account = tok.account; status.authorized_at = tok.authorized_at;
     let fresh;
     try { fresh = await DPC.tokenRequest({grant_type: "refresh_token", refresh_token: tok.refresh_token}); }
@@ -56,7 +63,7 @@ for (const f of files) {
     }
     if (fresh.refresh_token && fresh.refresh_token !== tok.refresh_token) {   // Spotify rotated it: keep the new one
       tok.refresh_token = fresh.refresh_token;
-      fs.writeFileSync("tokens/" + f, JSON.stringify(await encrypt(tok)) + "\n");
+      fs.writeFileSync("tokens/" + f, JSON.stringify(await encrypt(tok, key)) + "\n");
     }
     const saved = await DPC.pullSettings(fresh.access_token);
     if (!saved) throw new Error("No settings found yet: create one playlist from the app first.");

@@ -49,7 +49,7 @@ main{max-width:540px;margin:0 auto;padding:0 16px calc(60px + env(safe-area-inse
 input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:2px;outline:0;margin:12px 0 2px;direction:rtl;background:linear-gradient(to left,var(--ink) var(--p),#0f0f0f26 var(--p))}
 input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;border-radius:50%;background:var(--ink);cursor:grab;border:6px solid var(--bg);box-shadow:0 0 0 1px var(--ink)}
 input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:var(--ink);border:5px solid var(--bg);box-shadow:0 0 0 1px var(--ink)}
-.sl.off{opacity:.3}.hide{display:none}
+.sl.off,.sw.off{opacity:.3}.hide{display:none}
 .mix{display:flex;height:32px;margin:0 0 6px;font-size:11px;font-weight:500;letter-spacing:.1em;border:1px solid var(--ink)}
 .mix div{display:flex;align-items:center;justify-content:center;white-space:nowrap;overflow:hidden}
 .mix .e{background:var(--ink);color:var(--bg)}
@@ -150,12 +150,12 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;padding-b
 <div class="busy" id="busy"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div><span id="busytxt">בונה פלייליסט…</span></div>
 <script>
 // Auto-update: the home-screen app can keep an old copy; reload when a newer version is published.
-const APP_VERSION="202611220737";
+const APP_VERSION="202611220806";
 function checkUpdate(){fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"").then(t=>{t=t.trim();
   if(t&&t!==APP_VERSION&&!location.search.includes("code=")&&new URLSearchParams(location.search).get("v")!==t){const u=new URL(location.href);u.searchParams.set("v",t);location.replace(u.toString());}}).catch(()=>{});}
 checkUpdate();document.addEventListener("visibilitychange",()=>{if(!document.hidden)checkUpdate();});
 </script>
-<script src="core.js?v=202611220737"></script>
+<script src="core.js?v=202611220806"></script>
 <script>
 "use strict";
 const {CLIENT_ID, SCOPES, DAY_KEYS, DEFAULTS, Spotify, playlistId, pad} = DPC;
@@ -202,6 +202,8 @@ function current() { const s = store(); return s.accounts[s.current] ? s.current
   if (ch) saveStore(s); })();
 function cfg(name) { return {...DEFAULTS, ...(store().accounts[name] || {}), _name: name}; }
 function setCfg(name, patch) { const s = store(); s.accounts[name] = {...(s.accounts[name] || {}), ...patch}; saveStore(s); }
+// One GitHub secret per account (letters, digits and _ only), so connecting one account never breaks another.
+const secretName = name => "DPC_KEY_" + slugOf(name).toUpperCase().replace(/[^A-Z0-9_]/g, "_");
 const slugOf = name => (name.replace(/[^A-Za-z0-9_-]/g, "") || "acct").toLowerCase().slice(0, 30);
 
 // ============================================================ Spotify sign-in (PKCE: only the Client ID, no secret)
@@ -334,7 +336,7 @@ ${message ? `<div class="heromsg">${message}</div>` : ""}
 <div class="settings one">
 <div class="grid">${slider("length_minutes", c)}${slider("early_percent", c)}${slider("hebrew_percent", c)}${slider("blend_songs", c)}${slider("max_songs_per_artist", c)}${slider("max_from_yesterday", c)}</div>
 <div class="days">${DAYS.map(([l, k]) => `<label><input type="checkbox" data-day="${k}" ${c.skip_days.includes(k) ? "" : "checked"}><span>${l}</span></label>`).join("")}</div>
-<div class="sws">${toggle("hebrew_on", "שליטה בעברית", hp != null)}${toggle("unique_titles", "בלי שמות כפולים", c.unique_titles !== false)}${toggle("learn", "כמו הפלייליסטים שלי", !!c.learn)}${toggle("bpm_on", "שליטה לפי BPM", DPC.bpmOn(c))}
+<div class="sws">${toggle("hebrew_on", "שליטה בעברית", hp != null)}${toggle("hebrew_blocks", "עברית במקבצים (עד 3)", !!c.hebrew_blocks)}${toggle("unique_titles", "בלי שמות כפולים", c.unique_titles !== false)}${toggle("learn", "כמו הפלייליסטים שלי", !!c.learn)}${toggle("bpm_on", "שליטה לפי BPM", DPC.bpmOn(c))}
 <span id="risesw">${toggle("bpm_rise", "קצב עולה", DPC.bpmOn(c) ? !!c.bpm_rise : (c.bpm_saved ? !!c.bpm_saved.bpm_rise : true))}</span></div>
 <div id="bpmbox" class="grid"><div id="rangebox" class="pair">${slider("bpm_min", bpmVals)}${slider("bpm_max", bpmVals)}</div><div id="risebox" class="pair">${slider("bpm_start", bpmVals)}${slider("bpm_end", bpmVals)}</div></div>
 <button class="link more" data-tab="more">יצירה אוטומטית, פלייליסטי מקור וחשבון ←</button>
@@ -370,13 +372,13 @@ async function showAutoState(name) {
 
 function renderAutoPassword(msg = "") {
   renderPicker();
-  const pw = randomStr(24);
+  const pw = randomStr(24), secret = secretName(pendingAuto ? pendingAuto.name : current());
   $("#app").innerHTML = `<div class="backrow"><button class="back" data-act="home">→ חזרה</button></div>${msg}<section class="card hero"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
 <p class="day">כמעט סיימנו</p><p class="hint">החיבור לספוטיפיי הצליח. נשארו שני צעדים קצרים ב־GitHub.</p></section>
 <div class="card light"><h3>מפתח</h3>
 <div class="f"><label>המפתח שנוצר לך <small>(לא צריך לזכור אותו)</small></label><input type="text" id="pw" dir="ltr" readonly value="${pw}"></div>
 <button class="btn light-btn" data-act="copypw">העתק מפתח</button>
-<p class="sub">ואז <a href="https://github.com/${REPO}/settings/secrets/actions/new" target="_blank" rel="noopener">פתח את עמוד הסודות ב־GitHub</a>: ב־Name כותבים <b dir="ltr">DPC_KEY</b>, ב־Secret מדביקים את המפתח, ולוחצים Add secret. (אם כבר קיים DPC_KEY, לוחצים עליו ו־Update.)</p></div>
+<p class="sub">ואז <a href="https://github.com/${REPO}/settings/secrets/actions/new" target="_blank" rel="noopener">פתח את עמוד הסודות ב־GitHub</a>: ב־Name כותבים <b dir="ltr">${secret}</b> <button class="link" data-act="copyname" data-v="${secret}">העתק שם</button>, ב־Secret מדביקים את המפתח, ולוחצים Add secret. (אם כבר קיים סוד בשם הזה, לוחצים עליו ו־Update.) לכל חשבון יש סוד משלו, אז את שאר הסודות לא משנים.</p></div>
 <div class="card light"><h3>שמירה</h3><button class="btn go" data-act="autosave">שמור את החיבור ב־GitHub</button>
 <p class="sub">בעמוד שייפתח לוחצים <b>Commit changes</b> (פעמיים). זה הכל.</p></div>`;
 }
@@ -393,6 +395,7 @@ document.addEventListener("click", e => { const b = e.target.closest("[data-tab]
 function mixBar() {
   const r = $("#early_percent"); if (!r) return;
   $("#sl_hebrew_percent").classList.toggle("off", !$("#hebrew_on").checked);
+  $("#hebrew_blocks").closest(".sw").classList.toggle("off", !$("#hebrew_on").checked);
   const on = $("#bpm_on"); if (on) { const rise = $("#bpm_rise").checked; $("#bpmbox").classList.toggle("hide", !on.checked); $("#risesw").classList.toggle("hide", !on.checked);
     $("#risebox").classList.toggle("hide", !rise); $("#rangebox").classList.toggle("hide", rise); }
 }
@@ -409,6 +412,7 @@ function wireSettings(name) {
     }
     patch.unique_titles = $("#unique_titles").checked;
     patch.learn = $("#learn").checked;
+    patch.hebrew_blocks = $("#hebrew_blocks").checked;
     patch.skip_days = [...document.querySelectorAll("[data-day]")].filter(i => !i.checked).map(i => i.dataset.day);
     for (const [k, , , kind] of TEXTS) { const v = $("#" + k).value.trim(); patch[k] = kind === "list" ? v.split(",").map(a => a.trim()).filter(Boolean) : v; }
     if (!patch.new_playlist_name) patch.new_playlist_name = DEFAULTS.new_playlist_name;
@@ -447,6 +451,7 @@ document.addEventListener("click", async ev => {
   const act = b.dataset.act, name = current();
   if (act === "auth") return signIn(name);
   if (act === "auto") return signIn(name, "auto");
+  if (act === "copyname") { try { await navigator.clipboard.writeText(b.dataset.v); } catch (e) {} return toast("הועתק"); }
   if (act === "copypw") { const i = $("#pw"); i.select(); try { await navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand("copy"); } return toast("הועתק"); }
   if (act === "autosave") {
     const pw = $("#pw").value;
