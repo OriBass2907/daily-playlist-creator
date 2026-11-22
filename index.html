@@ -146,12 +146,12 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;padding-b
 <div class="busy" id="busy"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div><span id="busytxt">בונה פלייליסט…</span></div>
 <script>
 // Auto-update: the home-screen app can keep an old copy; reload when a newer version is published.
-const APP_VERSION="202611220607";
+const APP_VERSION="202611220608";
 function checkUpdate(){fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"").then(t=>{t=t.trim();
   if(t&&t!==APP_VERSION&&!location.search.includes("code=")&&new URLSearchParams(location.search).get("v")!==t){const u=new URL(location.href);u.searchParams.set("v",t);location.replace(u.toString());}}).catch(()=>{});}
 checkUpdate();document.addEventListener("visibilitychange",()=>{if(!document.hidden)checkUpdate();});
 </script>
-<script src="core.js?v=202611220607"></script>
+<script src="core.js?v=202611220608"></script>
 <script>
 "use strict";
 const {CLIENT_ID, SCOPES, DAY_KEYS, DEFAULTS, Spotify, playlistId, pad} = DPC;
@@ -194,7 +194,7 @@ function saveStore(s) { ls("dpc", s); }
 function current() { const s = store(); return s.accounts[s.current] ? s.current : Object.keys(s.accounts)[0] || null; }
 // One-time: turn on learning from Ori's example playlist (2026-11-22) for accounts saved before it existed.
 (function seedLearn() { const s = store(); let ch = false;
-  for (const a of Object.values(s.accounts || {})) if (!a.learn_seeded) { a.learn = true; a.learn_from = DEFAULTS.learn_from.slice(); a.learn_seeded = 1; ch = true; }
+  for (const a of Object.values(s.accounts || {})) if ((a.learn_seeded || 0) < 2) { a.learn = true; a.learn_from = DEFAULTS.learn_from.slice(); a.learn_seeded = 2; ch = true; }
   if (ch) saveStore(s); })();
 function cfg(name) { return {...DEFAULTS, ...(store().accounts[name] || {}), _name: name}; }
 function setCfg(name, patch) { const s = store(); s.accounts[name] = {...(s.accounts[name] || {}), ...patch}; saveStore(s); }
