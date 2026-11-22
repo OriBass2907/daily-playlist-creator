@@ -18,6 +18,7 @@
 html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 "Helvetica Neue",Helvetica,Arial,"Arial Hebrew",sans-serif;-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
 header{position:sticky;top:0;z-index:5;background:rgba(240,240,240,.88);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-bottom:1px solid var(--line);padding:calc(9px + env(safe-area-inset-top)) max(16px,calc(50% - 270px)) 9px;display:flex;align-items:center;gap:10px}
 header img{width:24px;height:24px;border-radius:6px}
+header .home{display:flex;align-items:center;gap:10px;flex:1;min-width:0;background:none;border:0;padding:0;color:inherit;cursor:pointer;text-align:right}
 header h1{font-size:10px;font-weight:500;letter-spacing:.14em;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header select{background:transparent;color:var(--ink);border:1px solid var(--ink);border-radius:999px;padding:5px 10px;font:500 12px/1 inherit;letter-spacing:.04em;max-width:46vw}
 main{max-width:540px;margin:0 auto;padding:0 16px calc(60px + env(safe-area-inset-bottom));counter-reset:sec}
@@ -135,23 +136,26 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;padding-b
 .sheet{display:none;position:fixed;inset:0;z-index:7;background:var(--bg);overflow-y:auto;padding:calc(10px + env(safe-area-inset-top)) 16px calc(20px + env(safe-area-inset-bottom))}
 .sheet.on{display:block}
 .one .hide,.one .grid.hide,.one .grid .pair.hide{display:none!important}
-.sheethead{display:flex;justify-content:space-between;align-items:center;padding:6px 0 10px;border-bottom:1px solid var(--ink);margin-bottom:8px}
+.sheethead{position:sticky;top:calc(-10px - env(safe-area-inset-top));background:var(--bg);z-index:1;display:flex;gap:14px;align-items:center;padding:8px 0 10px;border-bottom:1px solid var(--ink);margin-bottom:8px}
+.back{background:var(--ink);color:var(--bg);border:0;border-radius:999px;padding:9px 16px;font:500 14px/1 inherit;cursor:pointer}
+.backrow{padding:12px 0 0}
+.backbig{margin-top:18px;color:var(--ink)}
 .sheet .f{margin-bottom:8px}.sheet input[type=text]{padding:7px 0;font-size:14px}
 </style>
 </head>
 <body>
-<header><img src="icon-180.png?v=2" alt=""><h1>DAILY PLAYLIST CREATOR</h1><select id="acct" aria-label="חשבון"></select></header>
+<header><button class="home" data-act="home" aria-label="למסך הראשי"><img src="icon-180.png?v=2" alt=""><h1>DAILY PLAYLIST CREATOR</h1></button><select id="acct" aria-label="חשבון"></select></header>
 <main id="app"></main>
 <div class="toast" id="toast">נשמר</div>
 <div class="busy" id="busy"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div><span id="busytxt">בונה פלייליסט…</span></div>
 <script>
 // Auto-update: the home-screen app can keep an old copy; reload when a newer version is published.
-const APP_VERSION="202611220610";
+const APP_VERSION="202611220737";
 function checkUpdate(){fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"").then(t=>{t=t.trim();
   if(t&&t!==APP_VERSION&&!location.search.includes("code=")&&new URLSearchParams(location.search).get("v")!==t){const u=new URL(location.href);u.searchParams.set("v",t);location.replace(u.toString());}}).catch(()=>{});}
 checkUpdate();document.addEventListener("visibilitychange",()=>{if(!document.hidden)checkUpdate();});
 </script>
-<script src="core.js?v=202611220610"></script>
+<script src="core.js?v=202611220737"></script>
 <script>
 "use strict";
 const {CLIENT_ID, SCOPES, DAY_KEYS, DEFAULTS, Spotify, playlistId, pad} = DPC;
@@ -334,12 +338,12 @@ ${message ? `<div class="heromsg">${message}</div>` : ""}
 <span id="risesw">${toggle("bpm_rise", "קצב עולה", DPC.bpmOn(c) ? !!c.bpm_rise : (c.bpm_saved ? !!c.bpm_saved.bpm_rise : true))}</span></div>
 <div id="bpmbox" class="grid"><div id="rangebox" class="pair">${slider("bpm_min", bpmVals)}${slider("bpm_max", bpmVals)}</div><div id="risebox" class="pair">${slider("bpm_start", bpmVals)}${slider("bpm_end", bpmVals)}</div></div>
 <button class="link more" data-tab="more">יצירה אוטומטית, פלייליסטי מקור וחשבון ←</button>
-<div class="sheet" data-panel="more"><div class="sheethead"><b>הגדרות נוספות</b><button class="link" data-tab="">סגור ✕</button></div>
+<div class="sheet" data-panel="more"><div class="sheethead"><button class="back" data-tab="">→ חזרה</button><b>הגדרות נוספות</b></div>
 <div class="lbl">יצירה אוטומטית ב־12:00</div>
 <div id="autostate" class="sub">בודק…</div><button class="btn light-btn small" data-act="auto">הפעל יצירה אוטומטית</button>
 <div class="lbl">הגדרות</div>${texts}
-<button class="link" data-act="auth">${signed ? "התחבר מחדש לספוטיפיי" : "התחבר לספוטיפיי"}</button>${signed ? '<button class="link" data-act="logout">נתק</button>' : ""}<button class="link danger" data-act="delete">מחק חשבון</button></div>
-${result ? `<div class="sheet" data-panel="result"><div class="sheethead"><b>תוצאה</b><button class="link" data-tab="">סגור ✕</button></div>${result}</div>` : ""}
+<button class="link" data-act="auth">${signed ? "התחבר מחדש לספוטיפיי" : "התחבר לספוטיפיי"}</button>${signed ? '<button class="link" data-act="logout">נתק</button>' : ""}<button class="link danger" data-act="delete">מחק חשבון</button><button class="btn backbig" data-tab="">→ חזרה</button></div>
+${result ? `<div class="sheet" data-panel="result"><div class="sheethead"><button class="back" data-tab="">→ חזרה</button><b>תוצאה</b></div>${result}<button class="btn backbig" data-tab="">→ חזרה להגדרות</button></div>` : ""}
 </div>`;
   showTab(result ? "result" : "");
   wireSettings(name);
@@ -367,7 +371,7 @@ async function showAutoState(name) {
 function renderAutoPassword(msg = "") {
   renderPicker();
   const pw = randomStr(24);
-  $("#app").innerHTML = `${msg}<section class="card hero"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+  $("#app").innerHTML = `<div class="backrow"><button class="back" data-act="home">→ חזרה</button></div>${msg}<section class="card hero"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
 <p class="day">כמעט סיימנו</p><p class="hint">החיבור לספוטיפיי הצליח. נשארו שני צעדים קצרים ב־GitHub.</p></section>
 <div class="card light"><h3>מפתח</h3>
 <div class="f"><label>המפתח שנוצר לך <small>(לא צריך לזכור אותו)</small></label><input type="text" id="pw" dir="ltr" readonly value="${pw}"></div>
@@ -377,9 +381,13 @@ function renderAutoPassword(msg = "") {
 <p class="sub">בעמוד שייפתח לוחצים <b>Commit changes</b> (פעמיים). זה הכל.</p></div>`;
 }
 
-function showTab(t) {
+function showTab(t, fromHistory) {
   document.querySelectorAll("[data-panel]").forEach(p => p.classList.toggle("on", p.dataset.panel === t));
+  // the phone's own back (swipe / back button) also closes an open screen
+  if (!fromHistory) { if (t && !history.state?.sheet) history.pushState({sheet: t}, ""); else if (!t && history.state?.sheet) history.back(); }
 }
+addEventListener("popstate", () => showTab("", true));
+document.addEventListener("keydown", e => { if (e.key === "Escape" && document.querySelector(".sheet.on")) showTab(""); });
 document.addEventListener("click", e => { const b = e.target.closest("[data-tab]"); if (b) showTab(b.dataset.tab); });
 
 function mixBar() {
@@ -423,7 +431,7 @@ function wireSettings(name) {
 
 function renderNew(message = "", first = false) {
   $("#acct").style.display = first ? "none" : "";
-  $("#app").innerHTML = `${message}<section class="card hero"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
+  $("#app").innerHTML = `${first ? "" : '<div class="backrow"><button class="back" data-act="cancel">→ חזרה</button></div>'}${message}<section class="card hero"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div>
 <p class="day">${first ? "ברוך הבא" : "חשבון חדש"}</p><p class="hint">${first ? "מגדירים פעם אחת, ואז כל יום לוחצים \"צור\"." : "כל חשבון ספוטיפיי עם פלייליסטי מקור משלו."}</p></section>
 <div class="card light"><div class="f"><label>שם החשבון <small>למשל SimchaVibes</small></label><input type="text" id="n_name" dir="ltr" value="${first ? "SimchaVibes" : ""}"></div>
 <div class="f"><label>פלייליסט תחילת ערב <small>קישור מספוטיפיי</small></label><input type="text" id="n_early" dir="ltr" value="${first ? DEFAULTS.early_playlist : ""}"></div>
@@ -453,7 +461,7 @@ document.addEventListener("click", async ev => {
     window.open(url, "_blank");
     return;
   }
-  if (act === "cancel") return render();
+  if (act === "cancel" || act === "home") { if (current()) return render(); return; }
   if (act === "logout") { ls("dpc_tok_" + name, null); return render(`<div class="msg">החשבון נותק מספוטיפיי.</div>`); }
   if (act === "delete") {
     if (!confirm(`למחוק את החשבון "${name}" מהאפליקציה? (בספוטיפיי שום דבר לא נמחק)`)) return;
