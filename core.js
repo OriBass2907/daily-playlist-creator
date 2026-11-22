@@ -14,7 +14,7 @@ const DEFAULTS = {
   skip_days: ["friday","sunday"], new_playlist_name: "{weekday} {date}",
   hebrew_artists: ["Omer Adam","Noa Kirel"], not_hebrew_artists: [], public: false,
   bpm_min: null, bpm_max: null, bpm_rise: false, bpm_start: 95, bpm_end: 125,   // BPM shaping, off by default
-  learn: false, learn_from: []   // order songs by the energy curve learned from example playlists (empty = the two source playlists)
+  learn: true, learn_from: ["https://open.spotify.com/playlist/5EcQHirLwlqgFxWRSQLnxD"]   // order songs (inside each part) by the energy curve learned from Ori's example playlists (empty = the two source playlists)
 };
 
 // ------------------------------------------------------------ Spotify
@@ -383,6 +383,7 @@ async function run(c, token, opts = {}) {
   }
   step("בונה פלייליסט…");
   const [tracks, warnings] = build(earlyPool, latePool, c, yesterday, d.iso, learned && learned.curve);
+  if (c.learn && (c.learn_from || []).length && !refs.some(r => r.length)) warnings.push("לא הצלחתי לקרוא את הפלייליסטים ללמידה (הם צריכים להיות שלך או שאתה שותף בהם), אז למדתי מפלייליסטי המקור.");
   if (c.learn && !learned) warnings.push("לא היה מספיק מידע על השירים בפלייליסטים ללמידה, אז הסדר לא נלמד הפעם.");
   if (bpmOn(c) && tracks.length) {
     const known = tracks.filter(t => t.bpm != null).length;
