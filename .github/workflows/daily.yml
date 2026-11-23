@@ -20,7 +20,12 @@ jobs:
       - name: Make today's playlist
         run: node auto.mjs
         env:
-          DPC_SECRETS: ${{ toJSON(secrets) }}   # every DPC_KEY_<ACCOUNT> secret (one per account) plus the older DPC_KEY
+          # one key per account (up to 5): the app tells you which name to use
+          DPC_KEY: ${{ secrets.DPC_KEY }}
+          DPC_KEY_2: ${{ secrets.DPC_KEY_2 }}
+          DPC_KEY_3: ${{ secrets.DPC_KEY_3 }}
+          DPC_KEY_4: ${{ secrets.DPC_KEY_4 }}
+          DPC_KEY_5: ${{ secrets.DPC_KEY_5 }}
           FORCE: ${{ github.event_name == 'workflow_dispatch' }}
       - name: Save status and refreshed connection
         if: always()

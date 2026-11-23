@@ -150,12 +150,12 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;padding-b
 <div class="busy" id="busy"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div><span id="busytxt">בונה פלייליסט…</span></div>
 <script>
 // Auto-update: the home-screen app can keep an old copy; reload when a newer version is published.
-const APP_VERSION="202611220806";
+const APP_VERSION="202611231039";
 function checkUpdate(){fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"").then(t=>{t=t.trim();
   if(t&&t!==APP_VERSION&&!location.search.includes("code=")&&new URLSearchParams(location.search).get("v")!==t){const u=new URL(location.href);u.searchParams.set("v",t);location.replace(u.toString());}}).catch(()=>{});}
 checkUpdate();document.addEventListener("visibilitychange",()=>{if(!document.hidden)checkUpdate();});
 </script>
-<script src="core.js?v=202611220806"></script>
+<script src="core.js?v=202611231039"></script>
 <script>
 "use strict";
 const {CLIENT_ID, SCOPES, DAY_KEYS, DEFAULTS, Spotify, playlistId, pad} = DPC;
@@ -202,8 +202,8 @@ function current() { const s = store(); return s.accounts[s.current] ? s.current
   if (ch) saveStore(s); })();
 function cfg(name) { return {...DEFAULTS, ...(store().accounts[name] || {}), _name: name}; }
 function setCfg(name, patch) { const s = store(); s.accounts[name] = {...(s.accounts[name] || {}), ...patch}; saveStore(s); }
-// One GitHub secret per account (letters, digits and _ only), so connecting one account never breaks another.
-const secretName = name => "DPC_KEY_" + slugOf(name).toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+// One GitHub secret per account, so connecting one account never breaks another: 1st account DPC_KEY, then DPC_KEY_2 … DPC_KEY_5.
+const secretName = name => { const i = Object.keys(store().accounts).indexOf(name); return i <= 0 ? "DPC_KEY" : "DPC_KEY_" + Math.min(i + 1, 5); };
 const slugOf = name => (name.replace(/[^A-Za-z0-9_-]/g, "") || "acct").toLowerCase().slice(0, 30);
 
 // ============================================================ Spotify sign-in (PKCE: only the Client ID, no secret)
@@ -458,6 +458,7 @@ document.addEventListener("click", async ev => {
     if (!pendingAuto) return render(errBox("החיבור אבד. לחץ שוב על \"הפעל יצירה אוטומטית\"."));
     const box = await encryptForCloud({account: pendingAuto.name, refresh_token: pendingAuto.token.refresh_token,
       authorized_at: new Date().toISOString()}, pw);
+    box.key = secretName(pendingAuto.name);   // which GitHub secret opens this file
     const ts = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
     const file = `tokens/${slugOf(pendingAuto.name)}--${ts}.json`;
     pendingAuto = null;

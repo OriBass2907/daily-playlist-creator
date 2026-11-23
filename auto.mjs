@@ -6,10 +6,9 @@ import {webcrypto as crypto} from "node:crypto";
 import fs from "node:fs";
 
 const DPC = globalThis.DPC;
-// One secret per account: DPC_KEY_<ACCOUNT> (made by the app), falling back to the older shared DPC_KEY.
-let SECRETS = {};
-try { SECRETS = JSON.parse(process.env.DPC_SECRETS || "{}"); } catch { SECRETS = {}; }
-const keyFor = slug => SECRETS["DPC_KEY_" + slug.toUpperCase().replace(/[^A-Z0-9_]/g, "_")] || SECRETS.DPC_KEY || process.env.DPC_KEY || "";
+// One secret per account: the token file says which one (DPC_KEY, DPC_KEY_2 … DPC_KEY_5); older files use DPC_KEY.
+const KEY_NAMES = ["DPC_KEY", "DPC_KEY_2", "DPC_KEY_3", "DPC_KEY_4", "DPC_KEY_5"];
+const keyName = box => KEY_NAMES.includes(box.key) ? box.key : "DPC_KEY";
 const FORCE = process.env.FORCE === "true";   // manual "Run workflow" button: ignore the time window
 const enc = new TextEncoder(), dec = new TextDecoder();
 const b64 = buf => Buffer.from(buf).toString("base64"), unb64 = s => new Uint8Array(Buffer.from(s, "base64"));
@@ -47,11 +46,11 @@ for (const f of files) {
   const slug = f.split("--")[0].replace(/\.json$/, ""), status = {date: now.iso, time: `${now.hour}:${DPC.pad(now.minute)}`};
   try {
     const box = JSON.parse(fs.readFileSync("tokens/" + f, "utf8"));
-    const key = keyFor(slug), name = "DPC_KEY_" + slug.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+    const name = keyName(box), key = process.env[name] || "";
     if (!key) throw new Error(`The GitHub secret ${name} is missing (repo Settings > Secrets and variables > Actions).`);
     let tok;
     try { tok = await decrypt(box, key); } catch {
-      throw new Error(SECRETS[name] ? `The key in the GitHub secret ${name} does not match: in the app press 'הפעל יצירה אוטומטית' again.`
+      throw new Error(key ? `The key in the GitHub secret ${name} does not match: in the app press 'הפעל יצירה אוטומטית' again.`
         : `The GitHub secret ${name} is missing (repo Settings > Secrets and variables > Actions > New repository secret).`);
     }
     status.account = tok.account; status.authorized_at = tok.authorized_at;
@@ -63,7 +62,7 @@ for (const f of files) {
     }
     if (fresh.refresh_token && fresh.refresh_token !== tok.refresh_token) {   // Spotify rotated it: keep the new one
       tok.refresh_token = fresh.refresh_token;
-      fs.writeFileSync("tokens/" + f, JSON.stringify(await encrypt(tok, key)) + "\n");
+      fs.writeFileSync("tokens/" + f, JSON.stringify({...await encrypt(tok, key), key: name}) + "\n");
     }
     const saved = await DPC.pullSettings(fresh.access_token);
     if (!saved) throw new Error("No settings found yet: create one playlist from the app first.");
