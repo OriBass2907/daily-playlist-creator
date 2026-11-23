@@ -489,7 +489,7 @@ async function run(c, token, opts = {}) {
   let link = null;
   if (!opts.dry) {
     step("שומר בספוטיפיי…");
-    const desc = `עודכן ${d.stamp} · ${c.early_percent}% תחילת ערב · ${c.length_minutes} דקות ${encodeTag(c)}`;
+    const desc = describe(c);
     let pid = todays && todays.id;
     if (pid) await sp.call("PUT", `/playlists/${pid}`, {description: desc});
     else pid = (await sp.call("POST", "/me/playlists", {name, description: desc, public: !!c.public})).id;
@@ -509,12 +509,17 @@ async function run(c, token, opts = {}) {
   return {tracks, warnings, link, dry: !!opts.dry, existed: false, learned: learned && {...learned, text: describeCurve(learned.curve)}};
 }
 
-// Save settings for the 12:00 run: rewrite the tag on the newest dated playlist.
+// The text under the playlist's title (Ori's wording), then the evening's numbers, then the settings code.
+function describe(c) {
+  const h = Math.floor(c.length_minutes / 60) + ":" + pad(c.length_minutes % 60);
+  return `פלייליסט זה עוצב ונבנה באהבה על ידי Ori Bass · ${c.early_percent}% תחילת ערב · ${h} שעות ${encodeTag(c)}`;
+}
+
+// Save settings for the 12:00 run: rewrite the description (with the tag) on the newest dated playlist.
 async function pushSettings(c, token) {
   const sp = new Spotify(token), last = datedPlaylists(await sp.myPlaylists())[0];
   if (!last) return false;
-  const base = String(last.description || "").replace(/&#x2F;|&#47;/g, "/").replace(/\s*⚙[^\n]*$/, "");
-  await sp.call("PUT", `/playlists/${last.id}`, {description: (base + " " + encodeTag(c)).trim()});
+  await sp.call("PUT", `/playlists/${last.id}`, {description: describe(c)});
   return true;
 }
 
@@ -525,6 +530,6 @@ async function pullSettings(token) {
   return null;
 }
 
-root.DPC = {spaceArtists, hebrewPattern, maxHeRun, bpmOn, fetchTempos, riseOrder, learnCurve, curveOrder, describeCurve, liftOf, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
+root.DPC = {describe, spaceArtists, hebrewPattern, maxHeRun, bpmOn, fetchTempos, riseOrder, learnCurve, curveOrder, describeCurve, liftOf, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
   markHebrew, normTitle, build, israelNow, playlistName, isSkipDay, run, pushSettings, pullSettings, pad};
 })(typeof window !== "undefined" ? window : globalThis);
