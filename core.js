@@ -497,7 +497,14 @@ async function run(c, token, opts = {}) {
     link = "https://open.spotify.com/playlist/" + pid;
     // remove any second playlist for today (an older duplicate, or one made at the same moment elsewhere).
     // "Remove" = unfollow, like deleting in the Spotify app; it can be restored at spotify.com/account/recover-playlists
-    await removeExtras(pid, [...todaysAll, ...(await sp.myPlaylists()).filter(isToday)]);
+    const now = [...todaysAll, ...(await sp.myPlaylists()).filter(isToday)];
+    const other = now.find(p => p.id !== pid);
+    if (opts.onlyIfMissing && other) {
+      // the automatic run raced a manual create: the manual one wins, so the automatic copy removes itself
+      await removeExtras(other.id, [{id: pid}]);
+      return {existed: true, link: "https://open.spotify.com/playlist/" + other.id, tracks: [], warnings: []};
+    }
+    await removeExtras(pid, now);
   }
   return {tracks, warnings, link, dry: !!opts.dry, existed: false, learned: learned && {...learned, text: describeCurve(learned.curve)}};
 }
