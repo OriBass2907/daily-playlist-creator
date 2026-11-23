@@ -326,6 +326,30 @@ function hebrewBlocks(tracks, max = 3) {
   return out;
 }
 
+// Same artist: never two in a row, and at least ARTIST_GAP minutes from one start to the next.
+// Walks the playlist; when a song comes too soon, the nearest later song that fits (same part of the evening and
+// same language first) takes its place, so the evening's order changes as little as possible.
+const ARTIST_GAP = 30;
+function spaceArtists(tracks, gapMin = ARTIST_GAP) {
+  const gap = gapMin * 60000, out = tracks.slice(), last = new Map();
+  let t0 = 0, misses = 0;
+  const tooSoon = (t, at) => [...artistsOf(t)].some(a => last.has(a) && at - last.get(a) < gap);
+  for (let i = 0; i < out.length; i++) {
+    if (tooSoon(out[i], t0)) {
+      const cur = out[i];
+      const tries = [x => x._sec === cur._sec && x.he === cur.he, x => x._sec === cur._sec, () => true];
+      let j = -1, n = 0;
+      for (const ok of tries) { j = out.findIndex((x, k) => k > i && ok(x) && !tooSoon(x, t0)); if (j > 0) break; n++; }
+      // same language: swap the two, so Hebrew groups keep their shape; otherwise move the song up
+      if (j > 0 && n === 0) [out[i], out[j]] = [out[j], out[i]];
+      else if (j > 0) out.splice(i, 0, out.splice(j, 1)[0]); else misses++;
+    }
+    for (const a of artistsOf(out[i])) last.set(a, t0);
+    t0 += out[i].ms;
+  }
+  return [out, misses];
+}
+
 function build(earlyPool, latePool, c, yesterday, todayIso, curve) {
   if (c.bpm_min != null || c.bpm_max != null) { earlyPool = earlyPool.filter(t => fitsRange(t, c)); latePool = latePool.filter(t => fitsRange(t, c)); }
   if (c.bpm_rise) {
@@ -355,7 +379,9 @@ function build(earlyPool, latePool, c, yesterday, todayIso, curve) {
     tail.forEach((a, k) => blend.push(a, head[k]));
     early = early.slice(0, -n); late = late.slice(n);
   }
-  const result = [...early, ...blend, ...late], warnings = [];
+  early.forEach(t => t._sec = 0); blend.forEach(t => t._sec = 1); late.forEach(t => t._sec = 2);
+  const [result, misses] = spaceArtists([...early, ...blend, ...late]), warnings = [];
+  if (misses) warnings.push(`ב־${misses} מקומות לא היה אפשר לשמור ${ARTIST_GAP} דקות בין שירים של אותו אמן (אין מספיק אמנים שונים).`);
   if (gotEarly < earlyMs * .95) warnings.push(`פלייליסט תחילת הערב קצר מדי: ${Math.floor(gotEarly / 60000)} מתוך ${Math.floor(earlyMs / 60000)} דקות.`);
   if (gotEarly + gotLate < totalMs * .95) warnings.push(`יצא קצר: ${Math.floor((gotEarly + gotLate) / 60000)} מתוך ${c.length_minutes} דקות. הוסף שירים לפלייליסטי המקור או הגדל את מקסימום השירים לאמן.`);
   if (hp != null && result.length) {
@@ -444,6 +470,6 @@ async function pullSettings(token) {
   return null;
 }
 
-root.DPC = {hebrewBlocks, bpmOn, fetchTempos, riseOrder, learnCurve, curveOrder, describeCurve, liftOf, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
+root.DPC = {spaceArtists, hebrewBlocks, bpmOn, fetchTempos, riseOrder, learnCurve, curveOrder, describeCurve, liftOf, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
   markHebrew, normTitle, build, israelNow, playlistName, isSkipDay, run, pushSettings, pullSettings, pad};
 })(typeof window !== "undefined" ? window : globalThis);
