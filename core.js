@@ -448,8 +448,17 @@ function datedPlaylists(mine) {
 async function run(c, token, opts = {}) {
   const step = opts.step || (() => {}), d = israelNow(), sp = new Spotify(token);
   step("מחפש את הפלייליסט הקודם…");
-  const mine = await sp.myPlaylists(), name = playlistName(c, d), todays = mine.find(p => p.name === name);
-  if (opts.onlyIfMissing && todays) return {existed: true, link: "https://open.spotify.com/playlist/" + todays.id, tracks: [], warnings: []};
+  const mine = await sp.myPlaylists(), name = playlistName(c, d);
+  // One playlist per date (Ori's rule): today's = my playlist with today's name, or a generator playlist with today's date.
+  const me = (await sp.call("GET", "/me")).id;
+  const isToday = p => p.owner && p.owner.id === me && (p.name === name || ((p.name || "").includes(d.stamp) && String(p.description || "").includes("⚙")));
+  const todaysAll = mine.filter(isToday), todays = todaysAll[0];
+  const removeExtras = async (keep, list) => {
+    for (const id of new Set(list.map(p => p.id))) if (id !== keep) {
+      try { await sp.call("DELETE", `/playlists/${id}/followers`); step("הוסר פלייליסט כפול של היום"); } catch (e) { /* already gone */ }
+    }
+  };
+  if (opts.onlyIfMissing && todays) { if (!opts.dry) await removeExtras(todays.id, todaysAll); return {existed: true, link: "https://open.spotify.com/playlist/" + todays.id, tracks: [], warnings: []}; }
   const prev = datedPlaylists(mine).find(p => p.iso < d.iso);
   const yesterday = prev ? (await sp.playlistTracks(prev.id)).map(t => t.uri) : [];
   step("קורא את פלייליסטי המקור…");
@@ -486,6 +495,9 @@ async function run(c, token, opts = {}) {
     else pid = (await sp.call("POST", "/me/playlists", {name, description: desc, public: !!c.public})).id;
     await sp.setItems(pid, tracks.map(t => t.uri));
     link = "https://open.spotify.com/playlist/" + pid;
+    // remove any second playlist for today (an older duplicate, or one made at the same moment elsewhere).
+    // "Remove" = unfollow, like deleting in the Spotify app; it can be restored at spotify.com/account/recover-playlists
+    await removeExtras(pid, [...todaysAll, ...(await sp.myPlaylists()).filter(isToday)]);
   }
   return {tracks, warnings, link, dry: !!opts.dry, existed: false, learned: learned && {...learned, text: describeCurve(learned.curve)}};
 }
