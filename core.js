@@ -306,29 +306,58 @@ function riseOrder(tracks) {
   return out;
 }
 
-// Hebrew in groups: Hebrew songs come in runs of 2-3 (never more than 3), with the other songs between the runs.
-// Each language keeps its own order, so the evening's energy order stays almost the same.
-function hebrewBlocks(tracks, max = 3) {
-  const he = tracks.filter(t => t.he), other = tracks.filter(t => !t.he);
-  if (he.length < 2) return tracks;
-  const k = Math.ceil(he.length / max);
-  if (other.length < k - 1) return tracks;          // not enough other songs to separate the groups
-  const sizes = Array.from({length: k}, (_, i) => Math.floor(he.length / k) + (i < he.length % k ? 1 : 0));
-  // k+1 gaps of other songs (before, between, after); the inner gaps get at least one song
-  const gaps = Array(k + 1).fill(0); let left = other.length;
-  for (let i = 1; i < k; i++) { gaps[i] = 1; left--; }
-  for (let i = 0; left > 0; i = (i + 1) % (k + 1)) { gaps[i]++; left--; }
+// Hebrew rhythm: never more than MAX_HE Hebrew songs in a row, and the run lengths are random (1-3), with other songs
+// between them (grouped = lean towards runs of 2-3). Each language keeps its own order, so the evening's energy order
+// stays almost the same. carry = Hebrew songs at the end of the part before, so runs never grow across the seam.
+const MAX_HE = 3;
+function hebrewPattern(tracks, rng, {grouped = false, carry = 0} = {}) {
+  const he = tracks.filter(t => t.he), other = tracks.filter(t => !t.he), H = he.length, O = other.length;
+  if (!H || !O) return tracks;
+  const minK = Math.ceil(H / MAX_HE), maxK = Math.max(minK, Math.min(H, O + 1));
+  const rint = (a, b) => a + Math.floor(rng() * (b - a + 1));
+  const k = grouped ? Math.min(maxK, minK + rint(0, 1)) : rint(minK, maxK);
+  // split H into k runs of 1..3, randomly
+  const runs = Array(k).fill(1); let left = H - k;
+  while (left > 0) { const i = rint(0, k - 1); if (runs[i] < MAX_HE) { runs[i]++; left--; } }
+  // other songs: k+1 gaps (before, between, after); inner gaps need one; the first needs one if the part before ended in Hebrew
+  const gaps = Array(k + 1).fill(0); let free = O;
+  for (let i = 1; i < k && free > 0; i++) { gaps[i] = 1; free--; }
+  if (carry > 0 && free > 0 && carry + runs[0] > MAX_HE) { gaps[0] = 1; free--; }
+  while (free > 0) { gaps[rint(0, k)]++; free--; }
   const out = []; let h = 0, o = 0;
   for (let i = 0; i <= k; i++) {
     for (let g = 0; g < gaps[i]; g++) out.push(other[o++]);
-    if (i < k) for (let z = 0; z < sizes[i]; z++) out.push(he[h++]);
+    if (i < k) for (let z = 0; z < runs[i]; z++) out.push(he[h++]);
   }
   return out;
 }
+// Last safety net: break any Hebrew run longer than MAX_HE by swapping in the nearest later non-Hebrew song,
+// as long as that does not bring an artist closer than the artist gap.
+function capHebrewRuns(list, gapMin = ARTIST_GAP) {
+  const out = list.slice();
+  const gapOk = () => { const last = new Map(); let t = 0;
+    for (const x of out) { for (const a of artistsOf(x)) { if (last.has(a) && t - last.get(a) < gapMin * 60000) return false; last.set(a, t); } t += x.ms; }
+    return true; };
+  const startOk = gapOk();
+  for (let i = 0, run = 0; i < out.length; i++) {
+    run = out[i].he ? run + 1 : 0;
+    if (run <= MAX_HE) continue;
+    for (let j = i + 1; j < out.length; j++) {
+      if (out[j].he) continue;
+      [out[i], out[j]] = [out[j], out[i]];
+      if (!startOk || gapOk()) break;
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    run = out[i].he ? run : 0;
+  }
+  return out;
+}
+const tailHe = list => { let n = 0; for (let i = list.length - 1; i >= 0 && list[i].he; i--) n++; return n; };
+const maxHeRun = list => { let r = 0, m = 0; for (const t of list) { r = t.he ? r + 1 : 0; m = Math.max(m, r); } return m; };
 
 // Same artist: never two in a row, and at least ARTIST_GAP minutes from one start to the next.
 // Walks the playlist; when a song comes too soon, the nearest later song that fits (same part of the evening and
-// same language first) takes its place, so the evening's order changes as little as possible.
+// in the same language) swaps places with it, so the evening's order changes as little as possible.
 const ARTIST_GAP = 30;
 function spaceArtists(tracks, gapMin = ARTIST_GAP) {
   const gap = gapMin * 60000, out = tracks.slice(), last = new Map();
@@ -337,12 +366,11 @@ function spaceArtists(tracks, gapMin = ARTIST_GAP) {
   for (let i = 0; i < out.length; i++) {
     if (tooSoon(out[i], t0)) {
       const cur = out[i];
-      const tries = [x => x._sec === cur._sec && x.he === cur.he, x => x._sec === cur._sec, () => true];
-      let j = -1, n = 0;
-      for (const ok of tries) { j = out.findIndex((x, k) => k > i && ok(x) && !tooSoon(x, t0)); if (j > 0) break; n++; }
-      // same language: swap the two, so Hebrew groups keep their shape; otherwise move the song up
-      if (j > 0 && n === 0) [out[i], out[j]] = [out[j], out[i]];
-      else if (j > 0) out.splice(i, 0, out.splice(j, 1)[0]); else misses++;
+      // only a song in the same language, so the Hebrew rhythm keeps its shape; same part of the evening first
+      const tries = [x => x._sec === cur._sec && x.he === cur.he, x => x.he === cur.he];
+      let j = -1;
+      for (const ok of tries) { j = out.findIndex((x, k) => k > i && ok(x) && !tooSoon(x, t0)); if (j > 0) break; }
+      if (j > 0) [out[i], out[j]] = [out[j], out[i]]; else misses++;
     }
     for (const a of artistsOf(out[i])) last.set(a, t0);
     t0 += out[i].ms;
@@ -372,15 +400,23 @@ function build(earlyPool, latePool, c, yesterday, todayIso, curve) {
     if (down) { early.reverse(); late.reverse(); }
     early = noArtistBackToBack(early); late = noArtistBackToBack(late);
   }
-  if (c.hebrew_blocks && c.hebrew_percent != null) { early = noArtistBackToBack(hebrewBlocks(early)); late = noArtistBackToBack(hebrewBlocks(late)); }
   const n = Math.min(c.blend_songs || 0, early.length, late.length), blend = [];
   if (n) {
     const tail = early.slice(-n), head = late.slice(0, n);
     tail.forEach((a, k) => blend.push(a, head[k]));
     early = early.slice(0, -n); late = late.slice(n);
   }
+  if (c.hebrew_percent != null) {   // Hebrew rhythm, carried across the seams between the parts
+    const o = {grouped: !!c.hebrew_blocks};
+    early = hebrewPattern(early, rng, o);
+    const b = hebrewPattern(blend.length ? blend : [], rng, {...o, carry: tailHe(early)});
+    blend.splice(0, blend.length, ...b);
+    late = hebrewPattern(late, rng, {...o, carry: tailHe([...early, ...blend])});
+  }
   early.forEach(t => t._sec = 0); blend.forEach(t => t._sec = 1); late.forEach(t => t._sec = 2);
-  const [result, misses] = spaceArtists([...early, ...blend, ...late]), warnings = [];
+  let [result, misses] = spaceArtists([...early, ...blend, ...late]); const warnings = [];
+  if (c.hebrew_percent != null) result = capHebrewRuns(result);
+  if (c.hebrew_percent != null && maxHeRun(result) > MAX_HE) warnings.push(`יש ${maxHeRun(result)} שירים בעברית ברצף: אין מספיק שירים לועזיים כדי להפריד.`);
   if (misses) warnings.push(`ב־${misses} מקומות לא היה אפשר לשמור ${ARTIST_GAP} דקות בין שירים של אותו אמן (אין מספיק אמנים שונים).`);
   if (gotEarly < earlyMs * .95) warnings.push(`פלייליסט תחילת הערב קצר מדי: ${Math.floor(gotEarly / 60000)} מתוך ${Math.floor(earlyMs / 60000)} דקות.`);
   if (gotEarly + gotLate < totalMs * .95) warnings.push(`יצא קצר: ${Math.floor((gotEarly + gotLate) / 60000)} מתוך ${c.length_minutes} דקות. הוסף שירים לפלייליסטי המקור או הגדל את מקסימום השירים לאמן.`);
@@ -470,6 +506,6 @@ async function pullSettings(token) {
   return null;
 }
 
-root.DPC = {spaceArtists, hebrewBlocks, bpmOn, fetchTempos, riseOrder, learnCurve, curveOrder, describeCurve, liftOf, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
+root.DPC = {spaceArtists, hebrewPattern, maxHeRun, bpmOn, fetchTempos, riseOrder, learnCurve, curveOrder, describeCurve, liftOf, fitsRange, CLIENT_ID, SCOPES, API, DAY_KEYS, WEEKDAYS, DEFAULTS, tokenRequest, Spotify, playlistId, encodeTag, decodeTag,
   markHebrew, normTitle, build, israelNow, playlistName, isSkipDay, run, pushSettings, pullSettings, pad};
 })(typeof window !== "undefined" ? window : globalThis);

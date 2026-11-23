@@ -150,12 +150,12 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;padding-b
 <div class="busy" id="busy"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div><span id="busytxt">בונה פלייליסט…</span></div>
 <script>
 // Auto-update: the home-screen app can keep an old copy; reload when a newer version is published.
-const APP_VERSION="202611231102";
+const APP_VERSION="202611231123";
 function checkUpdate(){fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"").then(t=>{t=t.trim();
   if(t&&t!==APP_VERSION&&!location.search.includes("code=")&&new URLSearchParams(location.search).get("v")!==t){const u=new URL(location.href);u.searchParams.set("v",t);location.replace(u.toString());}}).catch(()=>{});}
 checkUpdate();document.addEventListener("visibilitychange",()=>{if(!document.hidden)checkUpdate();});
 </script>
-<script src="core.js?v=202611231102"></script>
+<script src="core.js?v=202611231123"></script>
 <script>
 "use strict";
 const {CLIENT_ID, SCOPES, DAY_KEYS, DEFAULTS, Spotify, playlistId, pad} = DPC;
@@ -336,7 +336,7 @@ ${message ? `<div class="heromsg">${message}</div>` : ""}
 <div class="settings one">
 <div class="grid">${slider("length_minutes", c)}${slider("early_percent", c)}${slider("hebrew_percent", c)}${slider("blend_songs", c)}${slider("max_songs_per_artist", c)}${slider("max_from_yesterday", c)}</div>
 <div class="days">${DAYS.map(([l, k]) => `<label><input type="checkbox" data-day="${k}" ${c.skip_days.includes(k) ? "" : "checked"}><span>${l}</span></label>`).join("")}</div>
-<div class="sws">${toggle("hebrew_on", "שליטה בעברית", hp != null)}${toggle("hebrew_blocks", "עברית במקבצים (עד 3)", !!c.hebrew_blocks)}${toggle("unique_titles", "בלי שמות כפולים", c.unique_titles !== false)}${toggle("learn", "כמו הפלייליסטים שלי", !!c.learn)}${toggle("bpm_on", "שליטה לפי BPM", DPC.bpmOn(c))}
+<div class="sws">${toggle("hebrew_on", "שליטה בעברית", hp != null)}${toggle("hebrew_blocks", "עברית במקבצים", !!c.hebrew_blocks)}${toggle("unique_titles", "בלי שמות כפולים", c.unique_titles !== false)}${toggle("learn", "כמו הפלייליסטים שלי", !!c.learn)}${toggle("bpm_on", "שליטה לפי BPM", DPC.bpmOn(c))}
 <span id="risesw">${toggle("bpm_rise", "קצב עולה", DPC.bpmOn(c) ? !!c.bpm_rise : (c.bpm_saved ? !!c.bpm_saved.bpm_rise : true))}</span></div>
 <div id="bpmbox" class="grid"><div id="rangebox" class="pair">${slider("bpm_min", bpmVals)}${slider("bpm_max", bpmVals)}</div><div id="risebox" class="pair">${slider("bpm_start", bpmVals)}${slider("bpm_end", bpmVals)}</div></div>
 <button class="link more" data-tab="more">יצירה אוטומטית, פלייליסטי מקור וחשבון ←</button>
