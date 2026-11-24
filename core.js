@@ -149,18 +149,22 @@ function rngFrom(seed) { // mulberry32 on a string hash: same day -> same playli
 }
 function shuffle(arr, rng) { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; }
 
+const WEEK_MAX = 2;   // Ori: no song more than twice in a week
 class Taken {
-  constructor(c, yesterday) {
+  constructor(c, yesterday, week) {
     this.uris = new Set(); this.titles = new Set(); this.artists = new Map();
     this.maxArtist = c.max_songs_per_artist; this.unique = c.unique_titles !== false;
     // Ori's rule: no song from the previous playlist at all (same song = same title, so Live/Remaster count too). Artists may repeat.
     this.yesterday = new Set((yesterday || []).map(t => t.uri)); this.yesterdayTitles = new Set((yesterday || []).map(t => normTitle(t.name)));
-    this.blockedYesterday = 0;
+    // and no song more than WEEK_MAX times in any 7 days: count it in the playlists of the last 6 days
+    this.weekCount = new Map();
+    for (const t of week || []) { const k = normTitle(t.name); this.weekCount.set(k, (this.weekCount.get(k) || 0) + 1); }
   }
   blocked(t) {
     if (this.uris.has(t.uri)) return true;
     if (this.unique && this.titles.has(normTitle(t.name))) return true;
     if (this.yesterday.has(t.uri) || this.yesterdayTitles.has(normTitle(t.name))) return true;
+    if ((this.weekCount.get(normTitle(t.name)) || 0) >= WEEK_MAX) return true;
     if (this.maxArtist != null) for (const a of artistsOf(t)) if ((this.artists.get(a) || 0) >= this.maxArtist) return true;
     return false;
   }
@@ -380,7 +384,7 @@ function spaceArtists(tracks, gapMin = ARTIST_GAP) {
   return [out, misses];
 }
 
-function build(earlyPool, latePool, c, yesterday, todayIso, curve) {
+function build(earlyPool, latePool, c, yesterday, todayIso, curve, week) {
   if (c.bpm_min != null || c.bpm_max != null) { earlyPool = earlyPool.filter(t => fitsRange(t, c)); latePool = latePool.filter(t => fitsRange(t, c)); }
   if (c.bpm_rise) {
     const split = c.bpm_start + (c.bpm_end - c.bpm_start) * c.early_percent / 100;
@@ -389,7 +393,7 @@ function build(earlyPool, latePool, c, yesterday, todayIso, curve) {
   }
   const rng = rngFrom(todayIso + c._name);
   const totalMs = c.length_minutes * 60000, earlyMs = totalMs * c.early_percent / 100;
-  const taken = new Taken(c, yesterday), hp = c.hebrew_percent;
+  const taken = new Taken(c, yesterday, week), hp = c.hebrew_percent;
   let [early, gotEarly] = pickSection(earlyPool, earlyMs, hp, rng, taken);
   let [late, gotLate] = pickSection(latePool, totalMs - gotEarly, hp, rng, taken);
   early = noArtistBackToBack(early); late = noArtistBackToBack(late);
@@ -421,7 +425,7 @@ function build(earlyPool, latePool, c, yesterday, todayIso, curve) {
   if (c.hebrew_percent != null && maxHeRun(result) > MAX_HE) warnings.push(`יש ${maxHeRun(result)} שירים בעברית ברצף: אין מספיק שירים לועזיים כדי להפריד.`);
   if (misses) warnings.push(`ב־${misses} מקומות לא היה אפשר לשמור ${ARTIST_GAP} דקות בין שירים של אותו אמן (אין מספיק אמנים שונים).`);
   if (gotEarly < earlyMs * .95) warnings.push(`פלייליסט תחילת הערב קצר מדי: ${Math.floor(gotEarly / 60000)} מתוך ${Math.floor(earlyMs / 60000)} דקות.`);
-  if (gotEarly + gotLate < totalMs * .95) warnings.push(`יצא קצר: ${Math.floor((gotEarly + gotLate) / 60000)} מתוך ${c.length_minutes} דקות. הוסף שירים לפלייליסטי המקור או הגדל את מקסימום השירים לאמן.`);
+  if (gotEarly + gotLate < totalMs * .95) warnings.push(`יצא קצר: ${Math.floor((gotEarly + gotLate) / 60000)} מתוך ${c.length_minutes} דקות. הוסף שירים לפלייליסטי המקור (שיר מתנגן עד פעמיים בשבוע ולא יומיים ברצף), או הגדל את מקסימום השירים לאמן.`);
   if (hp != null && result.length) {
     const real = 100 * result.filter(t => t.he).reduce((s, t) => s + t.ms, 0) / result.reduce((s, t) => s + t.ms, 0);
     if (Math.abs(real - hp) > 5) warnings.push(`אחוז העברית יצא ${Math.round(real)}% במקום ${hp}%: אין מספיק שירים ${real < hp ? "בעברית" : "לועזיים"} שעומדים בכללים.`);
@@ -463,6 +467,13 @@ async function run(c, token, opts = {}) {
   if (opts.onlyIfMissing && todays) { if (!opts.dry) await removeExtras(todays.id, todaysAll); return {existed: true, link: "https://open.spotify.com/playlist/" + todays.id, tracks: [], warnings: []}; }
   const prev = datedPlaylists(mine).find(p => p.iso < d.iso);
   const yesterday = prev ? await sp.playlistTracks(prev.id) : [];
+  // the playlists of the 6 days before today (with today's, that is a 7-day week)
+  const weekAgo = new Date(Date.parse(d.iso + "T12:00:00Z") - 6 * 86400000).toISOString().slice(0, 10);
+  const week = [];
+  const seen = new Set();   // Spotify sometimes lists the same playlist twice
+  for (const p of datedPlaylists(mine).filter(p => p.iso < d.iso && p.iso >= weekAgo && p.owner && p.owner.id === me && !seen.has(p.id) && seen.add(p.id))) {
+    week.push(...(p.id === (prev && prev.id) ? yesterday : await sp.playlistTracks(p.id)));
+  }
   step("קורא את פלייליסטי המקור…");
   const earlyPool = markHebrew(await sp.playlistTracks(playlistId(c.early_playlist)), c);
   const latePool = markHebrew(await sp.playlistTracks(playlistId(c.late_playlist)), c);
@@ -479,7 +490,7 @@ async function run(c, token, opts = {}) {
     learned = learnCurve(refs.length ? refs : [[...earlyPool, ...latePool]]);
   }
   step("בונה פלייליסט…");
-  const [tracks, warnings] = build(earlyPool, latePool, c, yesterday, d.iso, learned && learned.curve);
+  const [tracks, warnings] = build(earlyPool, latePool, c, yesterday, d.iso, learned && learned.curve, week);
   if (c.learn && (c.learn_from || []).length && !refs.some(r => r.length)) warnings.push("לא הצלחתי לקרוא את הפלייליסטים ללמידה (הם צריכים להיות שלך או שאתה שותף בהם), אז למדתי מפלייליסטי המקור.");
   if (c.learn && !learned) warnings.push("לא היה מספיק מידע על השירים בפלייליסטים ללמידה, אז הסדר לא נלמד הפעם.");
   if (bpmOn(c) && tracks.length) {
