@@ -1,9 +1,10 @@
 name: Daily playlist 12:00
 on:
   schedule:
-    # 12:00 Israel time is 09:00 UTC in summer and 10:00 UTC in winter. auto.mjs only acts between 12:00 and 16:00
-    # Israel time and never makes a second playlist on the same day, so the extra runs are harmless back-ups.
-    - cron: "0 9,10,11 * * *"
+    # GitHub's timer is "best effort": at busy times (the top of the hour) runs come hours late or are skipped.
+    # So there are many tries at odd minutes, from 12:00 Israel time on (09:xx UTC in summer, 10:xx UTC in winter).
+    # auto.mjs never makes a second playlist on the same day, so the extra tries are harmless.
+    - cron: "7,23,41,53 9,10,11,12,13 * * *"
   workflow_dispatch:   # "Run workflow" button: make today's playlist now (if it doesn't exist yet)
 permissions:
   contents: write

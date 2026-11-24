@@ -28,8 +28,8 @@ async function encrypt(obj, key) {
 }
 
 const now = DPC.israelNow();
-if (!FORCE && (now.hour < 12 || now.hour >= 16)) {
-  console.log(`Israel time ${now.hour}:${DPC.pad(now.minute)}: outside 12:00-16:00, nothing to do.`);
+if (!FORCE && now.hour < 12) {   // from 12:00 to midnight: a late try still makes the day's playlist
+  console.log(`Israel time ${now.hour}:${DPC.pad(now.minute)}: before 12:00, nothing to do.`);
   process.exit(0);
 }
 
