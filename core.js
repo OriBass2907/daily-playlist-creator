@@ -10,7 +10,8 @@ const DEFAULTS = {
   early_playlist: "https://open.spotify.com/playlist/5UorrGgj3rJJRTUhpUonzi",
   late_playlist: "https://open.spotify.com/playlist/0CZKyjDjz2h9uxd8ugTcfL",
   length_minutes: 360, early_percent: 40, hebrew_percent: 55, blend_songs: 4,
-  max_songs_per_artist: 5, max_from_yesterday: 10, unique_titles: true,
+  max_songs_per_artist: 5, max_from_yesterday: 0,   // no song from the previous playlist (always; kept only for old settings codes)
+  unique_titles: true,
   skip_days: ["friday","sunday"], new_playlist_name: "{weekday} {date}",
   hebrew_artists: ["Omer Adam","Noa Kirel"], not_hebrew_artists: [], public: false,
   bpm_min: null, bpm_max: null, bpm_rise: false, bpm_start: 95, bpm_end: 125,   // BPM shaping, off by default
@@ -152,17 +153,18 @@ class Taken {
   constructor(c, yesterday) {
     this.uris = new Set(); this.titles = new Set(); this.artists = new Map();
     this.maxArtist = c.max_songs_per_artist; this.unique = c.unique_titles !== false;
-    this.yesterday = new Set(yesterday || []); this.maxYesterday = c.max_from_yesterday; this.fromYesterday = 0;
+    // Ori's rule: no song from the previous playlist at all (same song = same title, so Live/Remaster count too). Artists may repeat.
+    this.yesterday = new Set((yesterday || []).map(t => t.uri)); this.yesterdayTitles = new Set((yesterday || []).map(t => normTitle(t.name)));
+    this.blockedYesterday = 0;
   }
   blocked(t) {
     if (this.uris.has(t.uri)) return true;
     if (this.unique && this.titles.has(normTitle(t.name))) return true;
-    if (this.maxYesterday != null && this.yesterday.has(t.uri) && this.fromYesterday >= this.maxYesterday) return true;
+    if (this.yesterday.has(t.uri) || this.yesterdayTitles.has(normTitle(t.name))) return true;
     if (this.maxArtist != null) for (const a of artistsOf(t)) if ((this.artists.get(a) || 0) >= this.maxArtist) return true;
     return false;
   }
   add(t) {
-    if (this.yesterday.has(t.uri)) this.fromYesterday++;
     this.uris.add(t.uri); this.titles.add(normTitle(t.name));
     for (const a of artistsOf(t)) this.artists.set(a, (this.artists.get(a) || 0) + 1);
   }
@@ -460,7 +462,7 @@ async function run(c, token, opts = {}) {
   };
   if (opts.onlyIfMissing && todays) { if (!opts.dry) await removeExtras(todays.id, todaysAll); return {existed: true, link: "https://open.spotify.com/playlist/" + todays.id, tracks: [], warnings: []}; }
   const prev = datedPlaylists(mine).find(p => p.iso < d.iso);
-  const yesterday = prev ? (await sp.playlistTracks(prev.id)).map(t => t.uri) : [];
+  const yesterday = prev ? await sp.playlistTracks(prev.id) : [];
   step("קורא את פלייליסטי המקור…");
   const earlyPool = markHebrew(await sp.playlistTracks(playlistId(c.early_playlist)), c);
   const latePool = markHebrew(await sp.playlistTracks(playlistId(c.late_playlist)), c);
