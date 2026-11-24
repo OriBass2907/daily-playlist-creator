@@ -9,7 +9,7 @@ const DPC = globalThis.DPC;
 // One secret per account: the token file says which one (DPC_KEY, DPC_KEY_2 … DPC_KEY_5); older files use DPC_KEY.
 const KEY_NAMES = ["DPC_KEY", "DPC_KEY_2", "DPC_KEY_3", "DPC_KEY_4", "DPC_KEY_5"];
 const keyName = box => KEY_NAMES.includes(box.key) ? box.key : "DPC_KEY";
-const FORCE = process.env.FORCE === "true";   // manual "Run workflow" button: ignore the time window
+const FORCE = process.env.FORCE === "true";   // "Run workflow" (also the daily 12:00 scheduled task): ignore the time window, not the days off
 const enc = new TextEncoder(), dec = new TextDecoder();
 const b64 = buf => Buffer.from(buf).toString("base64"), unb64 = s => new Uint8Array(Buffer.from(s, "base64"));
 
@@ -67,7 +67,7 @@ for (const f of files) {
     const saved = await DPC.pullSettings(fresh.access_token);
     if (!saved) throw new Error("No settings found yet: create one playlist from the app first.");
     const c = {...DPC.DEFAULTS, ...saved, _name: tok.account};
-    if (DPC.isSkipDay(c, now) && !FORCE) {
+    if (DPC.isSkipDay(c, now)) {   // days off hold for every run; "צור בכל זאת" in the app makes one anyway
       status.result = "skip"; console.log(`[${tok.account}] day off today, no playlist.`);
     } else {
       const r = await DPC.run(c, fresh.access_token, {onlyIfMissing: true, step: t => console.log(`[${tok.account}] ${t}`)});
