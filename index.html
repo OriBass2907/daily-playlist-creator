@@ -150,12 +150,12 @@ main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;padding-b
 <div class="busy" id="busy"><div class="eq"><i></i><i></i><i></i><i></i><i></i></div><span id="busytxt">בונה פלייליסט…</span></div>
 <script>
 // Auto-update: the home-screen app can keep an old copy; reload when a newer version is published.
-const APP_VERSION="202611241058";
+const APP_VERSION="202611251441";
 function checkUpdate(){fetch("version.txt?t="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.text():"").then(t=>{t=t.trim();
   if(t&&t!==APP_VERSION&&!location.search.includes("code=")&&new URLSearchParams(location.search).get("v")!==t){const u=new URL(location.href);u.searchParams.set("v",t);location.replace(u.toString());}}).catch(()=>{});}
 checkUpdate();document.addEventListener("visibilitychange",()=>{if(!document.hidden)checkUpdate();});
 </script>
-<script src="core.js?v=202611241058"></script>
+<script src="core.js?v=202611251441"></script>
 <script>
 "use strict";
 const {CLIENT_ID, SCOPES, DAY_KEYS, DEFAULTS, Spotify, playlistId, pad} = DPC;

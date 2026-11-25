@@ -376,12 +376,37 @@ function spaceArtists(tracks, gapMin = ARTIST_GAP) {
       const tries = [x => x._sec === cur._sec && x.he === cur.he, x => x.he === cur.he];
       let j = -1;
       for (const ok of tries) { j = out.findIndex((x, k) => k > i && ok(x) && !tooSoon(x, t0)); if (j > 0) break; }
-      if (j > 0) [out[i], out[j]] = [out[j], out[i]]; else misses++;
+      if (j > 0) [out[i], out[j]] = [out[j], out[i]];
     }
     for (const a of artistsOf(out[i])) last.set(a, t0);
     t0 += out[i].ms;
   }
-  return [out, misses];
+  // Second pass for what is left (usually near the end, where no later song remains): swap with ANY same-language
+  // song, earlier ones too, nearest first, whenever that lowers the number of too-close pairs.
+  for (let round = 0; round < 3; round++) {
+    let bad = gapViolations(out, gap);
+    if (!bad.length) break;
+    for (const i of bad) {
+      const before = gapViolations(out, gap).length; if (!before) break;
+      const order = out.map((_, k) => k).filter(k => k !== i && out[k].he === out[i].he).sort((a, b) => Math.abs(a - i) - Math.abs(b - i));
+      for (const k of order) {
+        [out[i], out[k]] = [out[k], out[i]];
+        if (gapViolations(out, gap).length < before) break;
+        [out[i], out[k]] = [out[k], out[i]];
+      }
+    }
+  }
+  return [out, gapViolations(out, gap).length];
+}
+// positions of songs whose artist already played less than `gap` ms before
+function gapViolations(list, gap) {
+  const last = new Map(), bad = []; let t = 0;
+  list.forEach((x, i) => {
+    if ([...artistsOf(x)].some(a => last.has(a) && t - last.get(a) < gap)) bad.push(i);
+    for (const a of artistsOf(x)) last.set(a, t);
+    t += x.ms;
+  });
+  return bad;
 }
 
 function build(earlyPool, latePool, c, yesterday, todayIso, curve, week) {
@@ -423,7 +448,7 @@ function build(earlyPool, latePool, c, yesterday, todayIso, curve, week) {
   let [result, misses] = spaceArtists([...early, ...blend, ...late]); const warnings = [];
   if (c.hebrew_percent != null) result = capHebrewRuns(result);
   if (c.hebrew_percent != null && maxHeRun(result) > MAX_HE) warnings.push(`יש ${maxHeRun(result)} שירים בעברית ברצף: אין מספיק שירים לועזיים כדי להפריד.`);
-  if (misses) warnings.push(`ב־${misses} מקומות לא היה אפשר לשמור ${ARTIST_GAP} דקות בין שירים של אותו אמן (אין מספיק אמנים שונים).`);
+  if (misses) warnings.push(`ב־${misses} מקומות לא היה אפשר לשמור ${ARTIST_GAP} דקות בין שירים של אותו אמן בלי לשבור כלל אחר.`);
   if (gotEarly < earlyMs * .95) warnings.push(`פלייליסט תחילת הערב קצר מדי: ${Math.floor(gotEarly / 60000)} מתוך ${Math.floor(earlyMs / 60000)} דקות.`);
   if (gotEarly + gotLate < totalMs * .95) warnings.push(`יצא קצר: ${Math.floor((gotEarly + gotLate) / 60000)} מתוך ${c.length_minutes} דקות. הוסף שירים לפלייליסטי המקור (שיר מתנגן עד פעמיים בשבוע ולא יומיים ברצף), או הגדל את מקסימום השירים לאמן.`);
   if (hp != null && result.length) {
