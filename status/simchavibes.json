@@ -1,10 +1,12 @@
 {
- "date": "2026-11-24",
- "time": "22:52",
+ "date": "2026-11-25",
+ "time": "12:04",
  "account": "SimchaVibes",
  "authorized_at": "2026-11-21T21:17:35.969Z",
- "result": "exists",
- "link": "https://open.spotify.com/playlist/1EHGOcVgJXyMNYlw3zEj81",
- "songs": 0,
- "warnings": []
+ "result": "created",
+ "link": "https://open.spotify.com/playlist/32QkZX9OYFOFaJqdxfqB9l",
+ "songs": 99,
+ "warnings": [
+  "ב־1 מקומות לא היה אפשר לשמור 30 דקות בין שירים של אותו אמן (אין מספיק אמנים שונים)."
+ ]
 }
