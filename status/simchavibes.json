@@ -1,10 +1,7 @@
 {
- "date": "2026-11-26",
- "time": "20:57",
+ "date": "2026-11-27",
+ "time": "12:03",
  "account": "SimchaVibes",
  "authorized_at": "2026-11-21T21:17:35.969Z",
- "result": "exists",
- "link": "https://open.spotify.com/playlist/2EoDsX0P4WE3gcKk9nmQSI",
- "songs": 0,
- "warnings": []
+ "result": "skip"
 }
